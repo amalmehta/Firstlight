@@ -18,3 +18,6 @@
 
 5. "Push, MIT license"
    → Added an MIT LICENSE and a GitHub Actions workflow (typecheck, test, build, deploy to Pages). Created the public repo amalmehta/Firstlight and pushed main.
+
+6. "*spend another 30 minutes doing deep deep research"
+   → Four parallel literature passes (sky/clouds, GI/path tracing, splats, materials/terrain/WebGPU). Package and API claims were rechecked locally. Ranked roadmap in docs/RESEARCH.md; nothing built from it yet.

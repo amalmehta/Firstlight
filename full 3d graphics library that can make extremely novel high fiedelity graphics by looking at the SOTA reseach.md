@@ -555,6 +555,7 @@ CHANGELOG:
 - 2026-11-19 — created
 - 2026-11-19 — answered the design questions; filled in DELIVERABLES, DEFINITIONS AND DEFERRED, and assumptions; built Firstlight v1 (core + Hillaire sky)
 - 2026-11-19 — MIT license; published to github.com/amalmehta/Firstlight with a Pages demo
+- 2026-11-19 — SOTA research pass: ranked roadmap in docs/RESEARCH.md (photometric units/EV100, erosion filter, GTAO, clouds, splats, idle path tracing)
 - 2026-09-15 — added meta-instruction: built-out applications include a small feedback tab
 - 2026-09-15 — added meta-instruction: no "Claude" attribution in commits, PRs, or branches
 - 2026-09-16 — added meta-instruction: always include a README when adding to GitHub

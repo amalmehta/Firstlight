@@ -27,7 +27,7 @@ stage.add(terrain, myMesh); // any three.js object; it is lit, shadowed and haze
 | Orbit frame cost, 1920×1200, Apple GPU in the app's browser | ≈13.7 ms net (budget 16.7 ms) |
 
 **[Instructions](docs/INSTRUCTIONS.md)** · [System design](docs/SYSTEM-DESIGN.md) ·
-[Concepts (CS184 → papers)](docs/CONCEPTS.md) · [Viz log](docs/VIZ-LOG.md) ·
+[Concepts (CS184 → papers)](docs/CONCEPTS.md) · [Research: what next](docs/RESEARCH.md) · [Viz log](docs/VIZ-LOG.md) ·
 [File structure](docs/FILE-STRUCTURE.md) · [Prompt log](docs/PROMPTS.md) · MIT license
 
 ## How it was built
