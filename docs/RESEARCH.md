@@ -47,7 +47,7 @@ with dependencies first.
 - **Risk.** The author says its derivatives are approximate and that some drainage lines don't reach the lowest point. It is not a physical simulation.
 - **Check.** Fixed-camera before/after screenshots and a slope histogram.
 
-### 3. Ambient occlusion: GTAO
+### 3. Ambient occlusion: GTAO — built 2026-11-19 (indirect-only, see VIZ-LOG.md)
 - **What.** Ground-truth AO: horizon-based occlusion with specular occlusion (Jimenez et al. 2016,
   https://www.iryoku.com/downloads/Practical-Realtime-Strategies-for-Accurate-Indirect-Occlusion.pdf).
   The paper matches ray-traced AO in 0.5 ms on a PS4 at 1080p, at half resolution.
@@ -109,6 +109,11 @@ with dependencies first.
   32³ resolution: roughly 32 768 texels × slices × about 12 steps per frame). Without it, air in
   a ridge's shadow glows, and a shaded valley at golden hour looks foggy. This is also the
   basis for "god rays" through ridges.
+
+- **Terrain sky-view factor.** Bake, per grid texel, the fraction of sky the surrounding terrain
+  leaves open (horizon angles in 8–16 directions). Like the sun-visibility bake, but it
+  doesn't depend on the sun, so it's baked once. It covers the valley- and gully-scale
+  skylight occlusion that GTAO can't see at distance.
 
 ## Later, or gated on a measurement
 - **WebGPU port.**

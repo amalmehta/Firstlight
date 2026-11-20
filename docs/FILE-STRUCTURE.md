@@ -20,6 +20,7 @@ src/stage/
   Stage.ts                 createStage: renderer, HDR target, camera, controls, sun, environment,
                            froxel aerial perspective, composite, on-demand loop, snapshot, benchmark
   shaders.ts               Sky background, environment cube, aerial volume, composite
+  ambientOcclusion.ts      GTAO computed via three's GTAOPass, applied to indirect light only
 src/terrain/
   noise.ts                 Seeded gradient noise, fBm, ridged multifractal
   Terrain.ts               Valley heightfield, albedo by slope and height, per-pixel detail,

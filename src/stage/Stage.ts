@@ -42,6 +42,7 @@ import {
   exposureScale,
   type CameraSettings,
 } from '../camera/photometry';
+import { ScreenAO, type AOOptions } from './ambientOcclusion';
 import { AERIAL_FRAG, AERIAL_SLICES, COMPOSITE_FRAG, ENV_FRAG, ENV_VERT, SKY_FRAG, SKY_VERT } from './shaders';
 
 type Vec3 = [number, number, number];
@@ -66,6 +67,12 @@ export interface StageOptions {
   shadowExtent?: number;
   /** Override Earth's atmosphere (e.g. { mieScattering: 0.02 } for a hazy day). */
   atmosphere?: Partial<AtmosphereParams>;
+  /**
+   * Ground-truth ambient occlusion (GTAO, Jimenez 2016) on indirect light only: creases and
+   * the ground under objects get less skylight; sunlight is untouched. Default on; pass
+   * false to turn off, or options ({ radius, resolution, samples }).
+   */
+  ambientOcclusion?: boolean | AOOptions;
   /**
    * Shadow the haze with the terrain (default true): air in a ridge's shadow stops scattering
    * sunlight. Costs a heightfield march per aerial-volume sample; turn off to compare.
@@ -166,6 +173,8 @@ export class Stage {
   private envPreExposure = 1;
   private renderListeners: (() => void)[] = [];
   private shadowedHaze: boolean;
+  private ao: ScreenAO;
+  private skyMesh!: Mesh;
   /** Sky irradiance per unit sun illuminance, from the last meter reading. */
   private skyTransfer = -1;
   private skyMeterBusy = false;
@@ -241,6 +250,10 @@ export class Stage {
     sky.renderOrder = -1000;
     sky.name = 'Sky';
     this.scene.add(sky);
+    this.skyMesh = sky;
+    const aoOpt = opts.ambientOcclusion ?? true;
+    this.ao = new ScreenAO(this.scene, this.camera, typeof aoOpt === 'object' ? aoOpt : {});
+    this.ao.enabled = aoOpt !== false;
 
     this.envMat = new ShaderMaterial({
       uniforms: { ...shared, uCamAtm: { value: this.camAtm } },
@@ -342,11 +355,14 @@ export class Stage {
       const sunAware = o as unknown as { setSunDirection?: (d: Vector3, r: WebGLRenderer) => void };
       if (typeof sunAware.setSunDirection === 'function') this.sunAware.push(sunAware as { setSunDirection: (d: Vector3, r: WebGLRenderer) => void });
     }
-    // Terrain shadows apply to every lit material, whichever was added first.
+    // Terrain shadows and ambient occlusion apply to every lit material, whichever was added first.
     this.scene.traverse((node) => {
       const mat = (node as Mesh).material;
-      if (!mat) return;
-      for (const m of Array.isArray(mat) ? mat : [mat]) for (const f of this.sunShaders) f(m);
+      if (!mat || node === this.skyMesh) return;
+      for (const m of Array.isArray(mat) ? mat : [mat]) {
+        for (const f of this.sunShaders) f(m);
+        this.ao.apply(m);
+      }
     });
     this.shadowsDirty = true;
     this.invalidate();
@@ -380,6 +396,13 @@ export class Stage {
   setExposureCompensation(stops: number): this {
     this.compensation = stops;
     this.meterKey = '';
+    this.invalidate();
+    return this;
+  }
+
+  /** Turn ambient occlusion on or off (on by default). */
+  setAmbientOcclusion(on: boolean): this {
+    this.ao.enabled = on;
     this.invalidate();
     return this;
   }
@@ -528,6 +551,7 @@ export class Stage {
     this.renderer.setSize(w, h, false);
     const pr = this.renderer.getPixelRatio();
     this.hdr.setSize(Math.round(w * pr), Math.round(h * pr));
+    this.ao.setSize(Math.round(w * pr), Math.round(h * pr));
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.invalidate();
@@ -662,6 +686,7 @@ export class Stage {
       this.aerialQuad.render(this.renderer);
     }
 
+    this.ao.update(this.renderer, [this.skyMesh]);
     this.renderer.setRenderTarget(this.hdr);
     this.renderer.render(this.scene, cam);
     this.renderer.setRenderTarget(null);
@@ -681,6 +706,7 @@ export class Stage {
     this.pmrem.dispose();
     this.composite.dispose();
     this.aerialQuad.dispose();
+    this.ao.dispose();
     this.aerial.dispose();
     this.renderer.dispose();
     this.canvas.remove();

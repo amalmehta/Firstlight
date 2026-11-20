@@ -53,6 +53,22 @@ how it was checked, and what changed.
   - **Cost:** +0.8 ms.
 - **Also found:** the asynchronous meter made the self-check read a stale sky value (6.7 klx instead of 9.1). Added `stage.settle()`, and the self-check uses it.
 
+## Alpine valley demo: ambient occlusion (2026-11-19)
+
+| AO off | AO on (indirect light only) |
+|---|---|
+| ![](images/ao-off.jpg) | ![](images/ao-on.jpg) |
+
+- **What:** GTAO dims skylight and sky reflections where geometry hides the sky. The sphere's underside and the pillar's foot now sit on the ground instead of floating. Sunlight is untouched.
+- **Tuning, by looking at the AO buffer:**
+  - A 3 m radius was nearly invisible (mean AO 0.98). 40 m lost the near contact.
+  - 10 m works for objects.
+  - Distant terrain gets little at any radius: screen-space search is capped in pixels.
+- **Cost, measured with GPU timer queries** (wall-clock timing in the hidden pane drifted to ±50 ms and was useless):
+  - 0.5 resolution: +2.4 to 3 ms.
+  - 0.35 resolution with 8 samples: cheap but grainy.
+  - 0.35 with 12 GTAO and 16 denoise samples: +0.6 ms at the default view (15.3 → 15.9 ms GPU, 1920×1200).
+
 ## Hello example (examples/hello.html), 2026-11-19
 
 The same stage in 15 lines: terrain plus a steel sphere. It exists to prove the "30 lines"

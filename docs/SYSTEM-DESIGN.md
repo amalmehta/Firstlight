@@ -96,6 +96,13 @@ losing them is harmless.
   1536×1152. The 32×32×32 volume (2 km per slice on a square-root curve, 64 km
   reach) costs about 2 ms and looks the same by eye. Trade-off: transmittance
   is stored as a grey average (alpha), as in the paper.
+- **Ambient occlusion on indirect light only.** three's GTAOPass (Jimenez 2016) computes AO
+  in "Off" output mode from its own half-res normal/depth G-buffer; every lit material is
+  patched to scale only indirect diffuse and indirect specular (via three's
+  computeSpecularOcclusion). The default multiply-the-image mode would also darken sunlit
+  creases. Settings (radius 10 m, resolution 0.35, 12 GTAO and 16 denoise samples) were
+  chosen by GPU timer queries: +0.6 ms at the default view, 1920×1200; 8 samples left
+  visible grain. Off switch: `ambientOcclusion: false`.
 - **Shadowed haze.** When a Terrain is added, the aerial-volume pass gets the heightfield
   and marches toward the sun from each scattering sample (`TERRAIN_SHADOW` in
   `atmosphere/glsl.ts`). Air in a ridge's shadow stops scattering direct sunlight. Measured:
@@ -188,6 +195,11 @@ numeric sliders, clamped to their ranges.
 - Aerial transmittance is grey (one channel), as in the paper.
 - Terrain is a single 20 km tile with no LOD.
 - No clouds; the sky is always clear.
+- Screen-space AO can't see terrain-scale occlusion far away (its search is capped in
+  pixels), so distant valleys and gullies get no skylight occlusion. A baked terrain
+  sky-view factor (horizon angles per grid texel, like the sun-visibility bake) is the fix.
+- A close-up view filling the frame with the mirror sphere costs ≈18.6 ms GPU at
+  1920×1200 even without AO; Balanced quality is tuned for the default view.
 - Shadowed haze shades only single scattering; the multiple-scattering term (sky-like
   light) still reaches shaded air. Sky pixels (the background) don't see terrain shadows,
   only terrain pixels do. Shafts are as sharp as the 32×32 froxel grid allows.

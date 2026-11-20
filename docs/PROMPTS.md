@@ -27,3 +27,6 @@
 
 8. "Yes, fix the haze"
    → Terrain-shadowed single scattering in the aerial volume: shaded far ridges lose their false glow (pixel 111→85), +0.8 ms, noon unchanged. The near-floor flatness turned out not to be haze (it is sky-only light; AO would help). Fixed a stale-meter race in the self-check with stage.settle().
+
+9. "Yes, add GTAO"
+   → GTAO via three's GTAOPass, applied to indirect light only through a material patch. Tuned by inspecting the AO buffer and GPU timer queries: radius 10 m, 0.35 resolution, 12/16 samples, +0.6 ms. Found that screen-space AO can't do terrain-scale occlusion; proposed a baked terrain sky-view factor.

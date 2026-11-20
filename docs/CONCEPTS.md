@@ -11,7 +11,7 @@ carry the details.
 | Transforms, Perspective Projection | Matrices take points between spaces; the inverse view-projection turns a pixel back into a ray. | `viewDir()` in `stage/shaders.ts`; depth → world position in the composite | — |
 | Hidden Surface Removal | The depth buffer keeps the nearest surface. We also *read* it, to know how much air is in front of each pixel. | float depth texture in `Stage` | Aerial perspective needs distance, so depth becomes data |
 | Texture Mapping | A texture is a function you sample, with filtering between texels. | The three atmosphere LUTs; the terrain height and sun-visibility textures | Bruneton 2017 non-linear LUT parametrisations |
-| Shading, Materials | BRDFs: how much light a surface sends towards the eye. | three's `MeshStandardMaterial` (GGX microfacet); `Terrain` albedos | Image-based lighting from our own sky (cube → PMREM) |
+| Shading, Materials | BRDFs: how much light a surface sends towards the eye. | three's `MeshStandardMaterial` (GGX microfacet); `Terrain` albedos | Image-based lighting from our own sky (cube → PMREM); GTAO (Jimenez 2016) dims only that indirect light |
 | Meshes | A surface as triangles; normals from neighbouring faces. | `Terrain` (512² grid, `computeVertexNormals`) plus per-pixel bump | Ridged multifractal noise (Musgrave) |
 | Ray Tracing and Acceleration | Intersect rays with geometry. | `raySphere()` for planet and atmosphere; heightfield march for terrain shadows | Soft heightfield shadows (Quilez penumbra) |
 | Radiometry | Radiance, irradiance, and how light is measured. | `params.ts`, `reference.ts` | Hillaire 2020 participating medium: Rayleigh, Mie, ozone |
