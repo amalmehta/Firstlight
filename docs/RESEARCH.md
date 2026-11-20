@@ -104,7 +104,7 @@ with dependencies first.
 - **Geometry.** CDLOD (Strugar 2009) lifts the 39 m limit so erosion detail shows in silhouettes. About 400–600 lines.
 
 ## Found while building #1
-- **Terrain-shadowed in-scattering.** In the froxel pass, scale single scattering by the
+- **Terrain-shadowed in-scattering — built 2026-11-19** (see VIZ-LOG.md). In the froxel pass, scale single scattering by the
   terrain's sun visibility at each sample (a heightfield march toward the sun at the volume's
   32³ resolution: roughly 32 768 texels × slices × about 12 steps per frame). Without it, air in
   a ridge's shadow glows, and a shaded valley at golden hour looks foggy. This is also the

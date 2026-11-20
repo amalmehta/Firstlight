@@ -39,6 +39,20 @@ how it was checked, and what changed.
 - **Speed:** orbit ≈14.6 ms net; sun drag ≈17.0 ms net, after making the meter's GPU readback asynchronous (it was ≈20.9 ms synchronous).
 - **Found:** a shaded valley looks hazy at low sun because aerial perspective ignores terrain shadows. Logged as a proposal.
 
+## Alpine valley demo: shadowed haze (2026-11-19)
+
+| Before (unshadowed haze) | After (terrain-shadowed haze) |
+|---|---|
+| ![](images/haze-unshadowed.jpg) | ![](images/haze-shadowed.jpg) |
+
+- **What:** single scattering in the aerial volume now respects terrain shadows.
+- **Checked:**
+  - **A/B pixels at a 5° sun:** a shaded ridge drops from 111/124/128 to 85/105/118.
+  - **Near valley floor:** unchanged. There was little air in front of it, so its flat look is real sky-only light; ambient occlusion (roadmap #3) is what would address it.
+  - **Noon:** identical with the effect on or off.
+  - **Cost:** +0.8 ms.
+- **Also found:** the asynchronous meter made the self-check read a stale sky value (6.7 klx instead of 9.1). Added `stage.settle()`, and the self-check uses it.
+
 ## Hello example (examples/hello.html), 2026-11-19
 
 The same stage in 15 lines: terrain plus a steel sphere. It exists to prove the "30 lines"

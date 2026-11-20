@@ -58,7 +58,7 @@ rows.push({ name: 'Sun at 60°: every channel > 0.7', result: t60.map((v) => v.t
 // Plausibility bands around Frostbite's reference values (Lagarde & de Rousiers 2014:
 // sun ≈ 100 klx, sky ≈ 20 klx), not a measurement of a specific day.
 stage.setSun({ elevation: 60, azimuth: 180 });
-stage.render();
+await stage.settle();
 const ex = stage.getExposure();
 const direct = ex.illuminanceLux - ex.skyLux;
 rows.push({
@@ -70,7 +70,7 @@ rows.push({
 const lit: number[] = [];
 for (const el of [60, 20, 5]) {
   stage.setSun({ elevation: el });
-  stage.render();
+  await stage.settle();
   lit.push(stage.getExposure().ev100);
 }
 rows.push({

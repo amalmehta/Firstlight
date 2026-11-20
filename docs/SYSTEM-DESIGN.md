@@ -96,6 +96,11 @@ losing them is harmless.
   1536×1152. The 32×32×32 volume (2 km per slice on a square-root curve, 64 km
   reach) costs about 2 ms and looks the same by eye. Trade-off: transmittance
   is stored as a grey average (alpha), as in the paper.
+- **Shadowed haze.** When a Terrain is added, the aerial-volume pass gets the heightfield
+  and marches toward the sun from each scattering sample (`TERRAIN_SHADOW` in
+  `atmosphere/glsl.ts`). Air in a ridge's shadow stops scattering direct sunlight. Measured:
+  +0.8 ms per frame; at a 5° sun a shaded ridge pixel goes from 111 to 85 (red channel);
+  at noon the image is pixel-identical. Off switch: `shadowedHaze: false`.
 - **Terrain shadows from the heightfield, not the shadow map.** A shadow map
   covers a box around the target; at low sun its edge cut a hard line across the
   valley floor. Marching the heightfield towards the sun gives soft mountain
@@ -183,9 +188,9 @@ numeric sliders, clamped to their ranges.
 - Aerial transmittance is grey (one channel), as in the paper.
 - Terrain is a single 20 km tile with no LOD.
 - No clouds; the sky is always clear.
-- Aerial perspective ignores terrain shadows: air in a ridge's shadow still scatters
-  sunlight, so a shaded valley at low sun looks hazier than it should. Fix proposed
-  (shadowed in-scattering in the froxel pass), not built.
+- Shadowed haze shades only single scattering; the multiple-scattering term (sky-like
+  light) still reaches shaded air. Sky pixels (the background) don't see terrain shadows,
+  only terrain pixels do. Shafts are as sharp as the 32×32 froxel grid allows.
 - The auto meter assumes the camera stands in sunlight (it adds direct sun even when the
   camera is in a ridge's shadow), like metering the sunlit side of a scene.
 - Sun-drag frames cost ≈17 ms net (GPU-synced upper bound, 1920×1200): the sky-view LUT,

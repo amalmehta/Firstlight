@@ -66,6 +66,11 @@ export interface StageOptions {
   shadowExtent?: number;
   /** Override Earth's atmosphere (e.g. { mieScattering: 0.02 } for a hazy day). */
   atmosphere?: Partial<AtmosphereParams>;
+  /**
+   * Shadow the haze with the terrain (default true): air in a ridge's shadow stops scattering
+   * sunlight. Costs a heightfield march per aerial-volume sample; turn off to compare.
+   */
+  shadowedHaze?: boolean;
   /** Text summary for screen readers: what the scene shows. */
   label?: string;
   /** Tone mapping operator. Default 'agx'. */
@@ -160,10 +165,12 @@ export class Stage {
   private preExposure = 1;
   private envPreExposure = 1;
   private renderListeners: (() => void)[] = [];
+  private shadowedHaze: boolean;
   /** Sky irradiance per unit sun illuminance, from the last meter reading. */
   private skyTransfer = -1;
   private skyMeterBusy = false;
   private skyMeterKey = '';
+  private meterPending: Promise<void> | null = null;
   private invViewProj = new Matrix4();
   private camAtm = new Vector3();
   private disposed = false;
@@ -203,6 +210,7 @@ export class Stage {
     this.camera.position.set(...(opts.camera?.position ?? [0, 30, 120]));
     this.atmosphere = new Atmosphere(opts.atmosphere);
     this.sunLux = opts.sunIlluminance ?? SOLAR_ILLUMINANCE_LUX;
+    this.shadowedHaze = opts.shadowedHaze ?? true;
 
     // HDR target: half-float colour, 4x MSAA, float depth (read back for aerial perspective).
     this.hdr = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
@@ -316,6 +324,19 @@ export class Stage {
       this.scene.add(o);
       const shader = o as unknown as { shadeWithSun?: (m: Material) => void };
       if (typeof shader.shadeWithSun === 'function') this.sunShaders.push(shader.shadeWithSun.bind(o));
+      // A heightfield also shadows the haze: air in a ridge's shadow stops scattering sunlight.
+      const hf = o as unknown as { terrainUniforms?: Record<string, { value: unknown }> };
+      if (hf.terrainUniforms && this.shadowedHaze) {
+        const tu = hf.terrainUniforms;
+        Object.assign(this.aerialMat.uniforms, {
+          uHeightTex: tu.uHeightTex,
+          uTerrainSize: tu.uTerrainSize,
+          uTerrainSegments: tu.uTerrainSegments,
+          uTerrainMaxH: tu.uTerrainMaxH,
+        });
+        this.aerialMat.defines.TERRAIN_SHADOW = '';
+        this.aerialMat.needsUpdate = true;
+      }
       const h = (o as unknown as { heightAt?: (x: number, z: number) => number }).heightAt;
       if (typeof h === 'function') this.ground = h.bind(o);
       const sunAware = o as unknown as { setSunDirection?: (d: Vector3, r: WebGLRenderer) => void };
@@ -367,6 +388,20 @@ export class Stage {
   onRender(fn: () => void): () => void {
     this.renderListeners.push(fn);
     return () => { this.renderListeners = this.renderListeners.filter((f) => f !== fn); };
+  }
+
+  /**
+   * Render until the exposure meter has caught up (its sky reading is asynchronous), then
+   * resolve. Use before reading getExposure() right after moving the sun.
+   */
+  async settle(): Promise<void> {
+    this.render();
+    for (let i = 0; i < 4 && this.meterPending; i++) {
+      const p = this.meterPending;
+      await p;
+      if (this.meterPending === p) this.meterPending = null;
+      this.render();
+    }
   }
 
   /** The exposure used for the last frame: EV100, metered lux, and camera settings. */
@@ -544,7 +579,7 @@ export class Stage {
     } else if (skyKey !== this.skyMeterKey && !this.skyMeterBusy) {
       this.skyMeterBusy = true;
       this.skyMeterKey = skyKey;
-      void this.atmosphere.measureSkyIrradianceAsync(this.renderer).then((v) => {
+      this.meterPending = this.atmosphere.measureSkyIrradianceAsync(this.renderer).then((v) => {
         this.skyMeterBusy = false;
         if (Math.abs(v - this.skyTransfer) > 1e-4 * Math.max(v, 1e-6)) {
           this.skyTransfer = v;

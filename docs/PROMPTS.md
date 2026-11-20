@@ -24,3 +24,6 @@
 
 7. "Yes, build item 1"
    → Photometric units and a physical camera: lux and cd/m², EV100, an auto incident meter (asynchronous GPU sky readback), Sunny 16 mode, compensation slider, meter readout. Photometry tests and self-check rows. Found that terrain-shadowed in-scattering is missing; logged as a proposal.
+
+8. "Yes, fix the haze"
+   → Terrain-shadowed single scattering in the aerial volume: shaded far ridges lose their false glow (pixel 111→85), +0.8 ms, noon unchanged. The near-floor flatness turned out not to be haze (it is sky-only light; AO would help). Fixed a stale-meter race in the self-check with stage.settle().

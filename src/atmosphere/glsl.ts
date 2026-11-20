@@ -126,6 +126,40 @@ vec3 skyLuminance(vec3 p, vec3 dir) {
   return texture(uSkyViewLut, skyViewUv(r, viewZenithCos, lightViewCos, hitGround)).rgb;
 }
 
+// Optional terrain shadowing of single scattering ("shadowed in-scattering"). Defined when
+// a heightfield is attached (Stage does this for a Terrain): air in a ridge's shadow then
+// stops scattering direct sunlight, which removes false haze in shaded valleys and gives
+// shafts of light through gaps. Multiple scattering is left as is (an approximation: it is
+// sky-like light that also reaches shaded air, though less of it).
+#ifdef TERRAIN_SHADOW
+uniform sampler2D uHeightTex;
+uniform float uTerrainSize;
+uniform float uTerrainSegments;
+uniform float uTerrainMaxH;
+float hfHeight(vec2 xz) {
+  vec2 uv = ((xz / uTerrainSize + 0.5) * uTerrainSegments + 0.5) / (uTerrainSegments + 1.0);
+  return texture(uHeightTex, uv).r;
+}
+// Sun visibility of an atmosphere-space point (km), from a march over the heightfield (metres).
+float terrainSunVisibility(vec3 pAtm, vec3 sunDir) {
+  vec3 p = vec3(pAtm.x, pAtm.y - uBottomRadius, pAtm.z) * 1000.0;
+  float hs = 0.5 * uTerrainSize;
+  if (p.y > uTerrainMaxH || abs(p.x) > hs || abs(p.z) > hs) return 1.0;
+  float cell = uTerrainSize / uTerrainSegments;
+  float vis = 1.0;
+  float t = cell * 0.5;
+  for (int i = 0; i < 28; i++) {
+    vec3 q = p + sunDir * t;
+    if (q.y > uTerrainMaxH || abs(q.x) > hs || abs(q.z) > hs) break;
+    float dh = q.y - hfHeight(q.xz);
+    vis = min(vis, clamp(10.0 * dh / t, 0.0, 1.0));
+    if (vis <= 0.0) break;
+    t += max(cell, t * 0.18);
+  }
+  return vis;
+}
+#endif
+
 // Single scattering plus the multiple-scattering term along a ray, up to tLimit km.
 // sunDir is passed in (not uSunDir) so the sky-view pass can use its local frame.
 // Returns in-scattered luminance; writes the ray's transmittance to tOut.
@@ -153,6 +187,9 @@ vec3 integrateScattering(vec3 ro, vec3 rd, vec3 sunDir, float tLimit, int steps,
     Medium m = sampleMedium(pr);
     vec3 sampleT = exp(-m.ext * dt);
     float shadow = raySphere(P, sunDir, uBottomRadius) >= 0.0 ? 0.0 : 1.0;
+#ifdef TERRAIN_SHADOW
+    shadow *= terrainSunVisibility(P, sunDir);
+#endif
     vec3 Tsun = getTransmittance(pr, sunCos);
     vec3 phaseScat = m.scatRay * phR + m.scatMie * phM;
     vec3 ms = getMultiScat(pr, sunCos);

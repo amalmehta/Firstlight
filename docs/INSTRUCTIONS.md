@@ -43,6 +43,8 @@ import { createStage, Terrain } from '../Firstlight/src/index.ts';
 | `stage.getExposure()` | EV100 used, metered lux (total and from the sky), equivalent camera settings. |
 | `stage.setSunIlluminance(lux)` | Sun above the atmosphere; Earth is 133 800 lux. |
 | `stage.onRender(fn)` | Run after each drawn frame (for readouts). |
+| `await stage.settle()` | Render until the exposure meter has caught up (its sky reading is asynchronous). |
+| `shadowedHaze` option | Terrain shadows the haze (default on, about +0.8 ms). |
 | `stage.invalidate({ shadows? })` | Ask for a frame after you change something yourself. |
 | `stage.loop((dt, t) => …)` | Opt into continuous animation (pass `null` to stop). |
 | `stage.resetCamera()` | Also bound to double-click and R. |

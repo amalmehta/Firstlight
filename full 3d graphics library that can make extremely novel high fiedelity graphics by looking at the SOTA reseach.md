@@ -557,6 +557,7 @@ CHANGELOG:
 - 2026-11-19 — MIT license; published to github.com/amalmehta/Firstlight with a Pages demo
 - 2026-11-19 — SOTA research pass: ranked roadmap in docs/RESEARCH.md (photometric units/EV100, erosion filter, GTAO, clouds, splats, idle path tracing)
 - 2026-11-19 — built roadmap item 1: photometric units and a physical camera (EV100, auto incident meter, Sunny 16)
+- 2026-11-19 — terrain-shadowed haze in the aerial volume; stage.settle() for the async meter
 - 2026-09-15 — added meta-instruction: built-out applications include a small feedback tab
 - 2026-09-15 — added meta-instruction: no "Claude" attribution in commits, PRs, or branches
 - 2026-09-16 — added meta-instruction: always include a README when adding to GitHub

@@ -26,7 +26,7 @@ stage.add(terrain, myMesh); // any three.js object; it is lit, shadowed and haze
 | GPU transmittance LUT vs CPU reference | 0.14% max error (threshold 1%) |
 | Sea-level Rayleigh depth vs Bucholtz 1995 | +9% to +13% (the standard coefficients run high; labeled) |
 | Sun at 60°: direct / sky light on the ground, auto EV | 99.5 klx / 9.1 klx, EV 15.4 (Sunny 16 ≈ 15) |
-| Orbit frame cost, 1920×1200, Apple GPU in the app's browser | ≈14.6 ms net (budget 16.7 ms) |
+| Orbit frame cost, 1920×1200, Apple GPU in the app's browser | ≈15.4 ms net (budget 16.7 ms) |
 
 **[Instructions](docs/INSTRUCTIONS.md)** · [System design](docs/SYSTEM-DESIGN.md) ·
 [Concepts (CS184 → papers)](docs/CONCEPTS.md) · [Research: what next](docs/RESEARCH.md) · [Viz log](docs/VIZ-LOG.md) ·
