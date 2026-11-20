@@ -42,6 +42,8 @@ flowchart LR
   T --> C
   M --> C
   V --> C
+  SC -. "view still (opt-in)" .-> P["Path tracer<br/>BVH · tiles · sky equirect"]
+  P -. "traced surface light" .-> C
   C --> O["Canvas"]
 ```
 
@@ -58,6 +60,7 @@ flowchart LR
 | `terrain/Terrain.ts` | Seeded ridged-fBm heightfield; albedo by slope and height (grass, conifer, rock, snow); per-pixel detail; baked sun visibility applied to every lit material | Meshes, texture mapping, shading, ray tracing |
 | Environment (in `Stage`) | Renders the sky into a 64² cube map → PMREM → `scene.environment` | Materials (image-based lighting) |
 | `clouds/Clouds.ts` + `glsl.ts` | Cumulus layer: GPU-generated noise, reduced-resolution march, shadow map; shades lit materials and the haze | Monte Carlo integration, volume rendering |
+| `pathtrace/PathTrace.ts` | Settle mode: wraps three-gpu-pathtracer (loaded on first use), patches its shader for premultiplied misses, cloud shadows and terrain detail, and tiles samples to a frame-time target | Path tracing, Monte Carlo integration, BVH |
 | `clouds/reference.ts` + `pathTrace.ts` | CPU mirror of the cloud maths and a Monte Carlo slab path tracer the octaves are fitted to | Monte Carlo integration, path tracing |
 
 ## Main flows
@@ -78,6 +81,14 @@ flowchart LR
    shadow map is rebaked only when the sun, the clouds or the orbit target move. The sun's shadow map is
    redrawn only when the sun or orbit target moves, or in `loop()` mode.
    `stage.loop(fn)` opts into continuous animation.
+4. **Settle (opt-in `pathTrace`).** Every frame compares the camera pose, projection and buffer
+   size with the last one, and `invalidate()` marks a change. A change draws the raster frame
+   and starts a 400 ms timer. When it fires with nothing changed, the stage loads the tracer
+   (once), builds the BVH (worker) and renders the sky into a 256×128 float equirect map that
+   becomes the tracer's environment. Then each frame adds one tile of a sample, and the
+   composite blends the traced surface light over the last raster frame. The sky, aerial
+   volume and cloud buffer are not redrawn (nothing moved), so a settling frame is only the
+   tile plus the composite. It stops at `samples`; then the GPU idles.
 
 ## Where data lives
 
@@ -165,6 +176,27 @@ losing them is harmless.
   highlights towards white instead of skewing hues, so the sun and the horizon
   stay natural.
 
+- **Settle: the tracer replaces surface light only.** The composite still draws the sky,
+  aerial perspective, clouds, exposure and tone mapping from the raster depth, so a settled
+  frame differs from the raster one only where the raster approximations (shadow map, GTAO,
+  sky-view factor, prefiltered environment, screen-space detail) differ from traced light, and
+  the fade between them doesn't jump in sky or haze. Trade-off: haze and clouds are not traced
+  (no light scattered into shadows by the haze, no reflections of clouds).
+- **Settle: patch the tracer's shader rather than fork it.** Three string patches, each
+  anchored on one line of three-gpu-pathtracer 0.0.28 (pinned) and each tested against the
+  installed shader: primary misses add nothing (premultiplied alpha over the raster sky; a
+  black background map would have cost a 17th texture unit), the sun is dimmed by the cloud
+  shadow map, and terrain hits get the terrain's procedural detail (marked by vertex alpha).
+  Trade-off: an upgrade can move the anchors; the tests then fail instead of the image changing.
+- **Settle: WebGL path of a library that now leads with WebGPU.** 0.0.28's README says it
+  requires WebGPU; the WebGL class still ships but is deprecated (its warning is filtered).
+  Chosen because the stage is WebGL2. Trade-off: a later release may drop it; pinned.
+- **Settle: small tiles, as many per frame as fit.** A whole sample is about a second of GPU
+  here and its cost is uneven (6×6 tiles: median 26 ms, but the tiles where rays graze the far
+  terrain took 240–480 ms). So tiles are small (~12k pixels, 12×12 at 1536×960) and each frame
+  draws as many as keep it near 30 ms, backing off at once after a slow frame. Timer queries:
+  the tracer's GPU time per frame was median 24.5 ms, max 55 ms, which bounds how long a drag
+  can wait behind it.
 - **Clouds: published recipe, refitted constants.** The density model, phase function and
   integration follow Schneider 2015, Jendersie & d'Eon 2023 and Hillaire 2016. The
   multiple-scattering octaves do not: the quoted a = b = c = ½ was 2.5–6× too dark against
@@ -190,8 +222,9 @@ v1 targets one canvas per page, one sun, one terrain tile of about 20 km.
 
 1. ~~Volumetric clouds~~ built (see Components). Next for clouds: temporal accumulation
    while the camera is still, clouds in the environment map, wind via `offset` in `loop()`.
-2. A progressive path-traced still mode (three-gpu-pathtracer). The stage owns
-   the render loop, so "camera stopped" is a single hook.
+2. ~~A progressive path-traced still mode~~ built (settle, see Components). Next: a denoiser
+   (OIDN is WebGPU-only in the library), tracing the haze, and using the converged frame as
+   ground truth to tune GTAO and the sky-view factor (see VIZ-LOG.md).
 3. Gaussian splats (Spark). They are added to `stage.scene` like any mesh;
    aerial perspective applies through depth, if splats write depth.
 4. Sim visuals: GPU particles that shade with `stage.sunColor` / `scene.environment`.
@@ -216,6 +249,8 @@ hooks, and the composite reads only the HDR colour and depth.
   finite and in range and the cloud shadow map both shades and lets sun through.
 - **Clouds (Vitest):** phase normalisation, the analytic slab for the integration step,
   octave energy, and the octave fit against a seeded Monte Carlo path tracer.
+- **Path tracing (Vitest):** each shader patch applies to the installed three-gpu-pathtracer
+  shader and fails if its anchor moves; the tiling rule; the RGBA colour workaround.
 - **Browser:** the demo is opened in the app's browser to check console errors,
   GPU-synced frame cost while orbiting (≈13.7 ms net at 1920×1200), and light,
   dark and phone-width screenshots. `stage.benchmark()` measures real frame
@@ -227,7 +262,8 @@ A static library and a static page: no accounts, no server, no user data, no
 network calls at runtime except Google Fonts on the demo page (three is bundled
 by Vite). The demo stores its sun, exposure and settings in localStorage, says so
 in Settings, and has a "Clear saved settings" button. Risks are supply-chain
-only: one runtime dependency (three), pinned. The feedback link opens GitHub
+only: three, plus three-gpu-pathtracer and three-mesh-bvh for settle mode, all pinned to exact
+versions (the tracer is downloaded only when settle mode is used). The feedback link opens GitHub
 in a new tab with `rel="noopener"`. No user input reaches a shader except
 numeric sliders, clamped to their ranges.
 
@@ -245,6 +281,14 @@ numeric sliders, clamped to their ranges.
   edges are soft and a little grainy at reduced resolution; light scattered through a cloud
   onto the ground is not added; the octave lighting is within ~35% of a path tracer, not exact.
   One layer only (cumulus); no cirrus or fog banks.
+- Settle (path tracing): haze and clouds are composited, not traced; the sun is a delta light
+  (hard shadow edges, no penumbra); materials are read as plain MeshStandard/Physical
+  properties, so other custom shader edits are invisible to the tracer (terrain detail is
+  ported by hand); the first settle costs two main-thread tasks (~0.36 s tracer setup once,
+  ~0.6 s geometry merge per scene change) and a BVH build in a worker (~5 s for the valley,
+  single-threaded without cross-origin isolation); 64 samples took about 100 s from stillness
+  in the hidden test pane at 1536×960 (visible-window timing is a checklist item); no denoiser. The stage does not rebuild its LUTs after a WebGL context
+  loss (seen once in testing when a harness queued hundreds of tiles).
 - Erosion is aesthetic, not hydrology: drainage lines can stop part-way down a slope, and
   at the 39 m grid some foothills form small pyramids rather than ridges.
 - Each heavy pipeline's first draw is still one 100–230 ms task (Chrome/macOS builds it in

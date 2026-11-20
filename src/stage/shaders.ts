@@ -73,12 +73,10 @@ void main() {
 }
 `;
 
-export const ENV_FRAG = /* glsl */ `
+const ENV_RADIANCE = /* glsl */ `
 ${Atmosphere.glsl}
 uniform vec3 uCamAtm;
-varying vec3 vDir;
-void main() {
-  vec3 dir = normalize(vDir);
+vec3 envRadiance(vec3 dir) {
   vec3 col = skyLuminance(uCamAtm, dir);
   if (raySphere(uCamAtm, dir, uBottomRadius) >= 0.0) {
     float r = uBottomRadius;
@@ -88,7 +86,30 @@ void main() {
     // Sunlight plus a crude sky term (zenith radiance times pi) on flat ground of albedo a.
     col += uGroundAlbedo / PI * (uSunIlluminance * Tsun * max(sunCos, 0.0) + skyDown * PI);
   }
-  gl_FragColor = vec4(col, 1.0);
+  return col;
+}
+`;
+
+export const ENV_FRAG = /* glsl */ `
+${ENV_RADIANCE}
+varying vec3 vDir;
+void main() {
+  gl_FragColor = vec4(envRadiance(normalize(vDir)), 1.0);
+}
+`;
+
+/**
+ * The same environment as an equirect map, for the path tracer. The direction convention is
+ * three-gpu-pathtracer's equirectUvToDirection (u = 0.5 looks down +x, v = 1 is straight up).
+ */
+export const ENV_EQUIRECT_FRAG = /* glsl */ `
+${ENV_RADIANCE}
+varying vec2 vUv;
+void main() {
+  float theta = (vUv.x - 0.5) * 2.0 * PI;
+  float phi = (1.0 - vUv.y) * PI;
+  vec3 dir = vec3(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta));
+  gl_FragColor = vec4(min(envRadiance(dir), vec3(6.0e4)), 1.0);
 }
 `;
 
@@ -124,6 +145,8 @@ uniform sampler2D tColor;
 uniform sampler2D tDepth;
 uniform sampler3D tAerial;
 uniform float uAerialOn;
+uniform sampler2D tSettle; // path-traced surface light, premultiplied by coverage
+uniform float uSettle;     // 0 raster … 1 traced
 varying vec2 vUv;
 #ifdef CLOUDS
 uniform sampler2D tClouds;
@@ -161,6 +184,10 @@ vec4 cloudsAt(ivec2 px) {
 #endif
 void main() {
   vec3 col = texture(tColor, vUv).rgb;
+  if (uSettle > 0.0) {
+    vec4 p = texture(tSettle, vUv);
+    col = mix(col, p.rgb + col * (1.0 - p.a), uSettle);
+  }
   float depth = texture(tDepth, vUv).x;
   if (depth < 1.0 && uAerialOn > 0.5) {
     vec4 wp = uInvViewProj * vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);

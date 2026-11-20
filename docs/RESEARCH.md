@@ -91,7 +91,7 @@ with dependencies first.
 - **Licences.** The original 3DGS code is for non-commercial use only. TRELLIS and LGM (photo/text → splats) are MIT but need a 10–16 GB NVIDIA GPU.
 - **Check.** A splat and a grey proxy mesh at 1, 5 and 20 km should get the same haze. Compare at three sun angles.
 
-### 6. "Settle to photoreal" when the camera stops
+### 6. "Settle to photoreal" when the camera stops — built 2026-11-20 (WebGL path; see VIZ-LOG.md)
 - **What.** three-gpu-pathtracer 0.0.28 (2026-11-02; needs three ≥0.187 and three-mesh-bvh; verified on npm).
   - It waits until the camera stops, accumulates samples, and fades over the raster frame.
   - It has multiple importance sampling and environment importance sampling.

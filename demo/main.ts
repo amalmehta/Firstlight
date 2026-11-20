@@ -2,8 +2,8 @@ import { CylinderGeometry, Mesh, MeshStandardMaterial, SphereGeometry } from 'th
 import { createStage, FirstlightUnsupportedError, Terrain, type Stage } from '../src/index';
 
 /* ---------- Preferences (this device only) ---------- */
-interface Prefs { elevation: number; azimuth: number; compensation: number; clouds: number; metering: 'auto' | 'sunny16'; quality: number; tone: 'agx' | 'aces'; theme: 'system' | 'light' | 'dark' }
-const DEFAULTS: Prefs = { elevation: 22, azimuth: 290, compensation: 0, clouds: 35, metering: 'auto', quality: 1.5, tone: 'agx', theme: 'system' };
+interface Prefs { elevation: number; azimuth: number; compensation: number; clouds: number; metering: 'auto' | 'sunny16'; quality: number; tone: 'agx' | 'aces'; settle: 'on' | 'off'; theme: 'system' | 'light' | 'dark' }
+const DEFAULTS: Prefs = { elevation: 22, azimuth: 290, compensation: 0, clouds: 35, metering: 'auto', quality: 1.5, tone: 'agx', settle: 'on', theme: 'system' };
 const KEY = 'firstlight.demo.v2'; // v2: exposure became EV compensation
 function loadPrefs(): Prefs {
   try {
@@ -27,6 +27,7 @@ prefs.clouds = clamp(prefs.clouds, 0, 100);
 if (prefs.metering !== 'sunny16') prefs.metering = 'auto';
 if (![1, 1.5, 2].includes(prefs.quality)) prefs.quality = DEFAULTS.quality;
 if (prefs.tone !== 'aces') prefs.tone = 'agx';
+if (prefs.settle !== 'off') prefs.settle = 'on';
 if (!['light', 'dark'].includes(prefs.theme)) prefs.theme = 'system';
 
 const applyTheme = () => {
@@ -52,6 +53,7 @@ try {
     clouds: { coverage: prefs.clouds / 100 },
     maxPixelRatio: prefs.quality,
     toneMapping: prefs.tone,
+    pathTrace: prefs.settle === 'on',
     camera: { position: [-26, 7, 46], target: [2, 4, 0] },
     label: $('scene-summary').textContent ?? undefined,
   });
@@ -97,12 +99,16 @@ stage.onRender(() => {
   const e = stage.getExposure();
   const line1 = `☼ ${fmtLux(e.illuminanceLux)} lux at the camera · ${fmtLux(e.skyLux)} from the sky`;
   const line2 = `${e.mode === 'auto' ? 'Metered' : 'Fixed'} EV ${e.ev100.toFixed(1)} · ${e.settings}`;
-  const text = line1 + line2;
+  const pt = stage.getPathTraceState();
+  // Only shown while the still view is being traced, so moving clears it at once.
+  const line3 = !pt.enabled || pt.fade === 0 ? '' : pt.samples < pt.target ? `Path tracing · ${pt.samples} of ${pt.target} samples` : `Path traced · ${pt.samples} samples`;
+  const text = line1 + line2 + line3;
   if (text !== lastMeter) {
     const m = $('meter');
     const a = document.createElement('span'); a.textContent = line1;
     const b = document.createElement('span'); b.textContent = line2;
-    m.replaceChildren(a, b);
+    const c = document.createElement('span'); c.textContent = line3;
+    m.replaceChildren(a, b, c);
     lastMeter = text;
   }
 });
@@ -146,6 +152,9 @@ const dialog = $<HTMLDialogElement>('settings');
 const quality = $<HTMLSelectElement>('quality');
 const tone = $<HTMLSelectElement>('tone');
 const metering = $<HTMLSelectElement>('metering');
+const settle = $<HTMLSelectElement>('settle');
+settle.value = prefs.settle;
+settle.addEventListener('change', () => { prefs.settle = settle.value as Prefs['settle']; stage.setPathTracing(prefs.settle === 'on'); savePrefs(); });
 metering.value = prefs.metering;
 metering.addEventListener('change', () => { prefs.metering = metering.value as Prefs['metering']; stage.setExposure(meteringMode()); savePrefs(); });
 const theme = $<HTMLSelectElement>('theme');
@@ -167,7 +176,8 @@ $('clear-prefs').addEventListener('click', () => {
   try { localStorage.removeItem(KEY); } catch { /* nothing stored */ }
   Object.assign(prefs, DEFAULTS);
   elev.value = String(prefs.elevation); azim.value = String(prefs.azimuth); expo.value = String(prefs.compensation); cloudIn.value = String(prefs.clouds); metering.value = prefs.metering;
-  quality.value = String(prefs.quality); tone.value = prefs.tone; theme.value = prefs.theme;
+  quality.value = String(prefs.quality); tone.value = prefs.tone; theme.value = prefs.theme; settle.value = prefs.settle;
+  stage.setPathTracing(prefs.settle === 'on');
   stage.setSun(prefs).setExposure(meteringMode()).setExposureCompensation(prefs.compensation).setMaxPixelRatio(prefs.quality).setToneMapping(prefs.tone).setClouds({ coverage: prefs.clouds / 100 });
   applyTheme(); syncOutputs();
 });

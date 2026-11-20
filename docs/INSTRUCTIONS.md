@@ -49,6 +49,8 @@ import { createStage, Terrain } from '../Firstlight/src/index.ts';
 | `terrain.setSkyOcclusion(on)` | Terrain sky-view factor on indirect light (default on; baked once). |
 | `shadowedHaze` option | Terrain shadows the haze (default on, about +0.8 ms). |
 | `clouds` option / `stage.setClouds(opts)` | Volumetric cumulus (default on, 35% cover). `false` turns them off; options: `{ coverage, altitude: [base, top] m, extinction /m, dropletDiameter µm, offset: [x, z] m, shadows, steps, scale }`. They shade the ground, objects and haze, and the auto meter reads their shadow at the camera. |
+| `pathTrace` option / `stage.setPathTracing(on \| opts)` | Settle to a path-traced frame when the view is still (default off; the demo turns it on). three-gpu-pathtracer is downloaded on first use. Options: `{ samples (64), delayMs (400), fadeMs (700), minSamples (4), bounces (4), filterGlossy (0.5), tiles ('auto') }`. Any change (camera, sun, exposure, `invalidate()`) drops back to raster at once. |
+| `stage.getPathTraceState()` | `{ enabled, samples, target, fade, tiles, unavailable, cloudShadows }`, e.g. for a progress readout. |
 | `stage.clouds.sunTransmittanceAt(renderer, p, sunDir)` | Async: how much direct sun gets through the clouds at a point (0–1). |
 | `stage.invalidate({ shadows? })` | Ask for a frame after you change something yourself. |
 | `stage.loop((dt, t) => …)` | Opt into continuous animation (pass `null` to stop). |
@@ -90,4 +92,6 @@ browser window **visible** (hidden tabs throttle animation to about 1 frame per 
 - [ ] **Clouds:** the Cloud cover slider goes from clear to overcast smoothly; cloud shadows sit on the slopes where the clouds are, and at a low sun they stretch out without stripes.
 - [ ] **Cloud edges:** orbit slowly near a ridge with clouds behind it: the ridge outline stays sharp (no halo of cloud around it).
 - [ ] **Loading:** in a visible window, the page stays responsive (scrolling, hovering the panel) while it loads; no freeze longer than about a quarter second.
+- [ ] **Settle:** stop orbiting. About half a second later the readout says "Path tracing · n of 64 samples" and the frame fades from the fast version to the traced one (the sphere starts reflecting the real ground). Start dragging mid-way: the fast frame is back with no visible hitch. Settings → "When the view is still" → Stay rasterised turns it off.
+- [ ] **Settle cost:** with the window visible, time how long 64 samples take at Balanced quality (measured in a hidden pane: see VIZ-LOG.md), and that orbiting right after a settle feels as smooth as before.
 - [ ] **Metering:** the readout under the sliders reads about EV 15 with the sun at 60°; Settings → Metering → Sunny 16 turns dusk nearly black while Auto keeps it visible.

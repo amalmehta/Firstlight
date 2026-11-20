@@ -28,6 +28,9 @@ src/clouds/
   pathTrace.ts             Monte Carlo slab path tracer: ground truth the octaves are fitted to
   glsl.ts                  Noise generation, density, half-res march, shadow map (GLSL)
   Clouds.ts                Owns noise textures, march and shadow targets; shades lit materials
+src/pathtrace/
+  PathTrace.ts             Settle mode: three-gpu-pathtracer (loaded on first use), shader patches
+                           (premultiplied misses, cloud shadow, terrain detail), automatic tiling
 src/terrain/
   noise.ts                 Seeded gradient noise, fBm, ridged multifractal
   build.ts                 Pure terrain build: heights, erosion, normals, colours, mesh arrays
@@ -43,6 +46,7 @@ tests/erosion.test.ts    Gullies run downhill, flat stays flat, determinism, mes
 tests/skyView.test.ts    SVF closed forms: pit cos²h, wall ½, tilted plane, open slopes
 tests/terrain.test.ts      Determinism, ranges, mesh vs heightAt
 tests/clouds.test.ts       Phase normalisation, analytic slab, octave energy, fit vs path tracer
+tests/pathtrace.test.ts    Shader patches apply to the installed tracer; tiling rule; RGBA colour swap
 
 docs/                      README links: instructions, system design, concepts, viz log, prompts
 ```

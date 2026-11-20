@@ -31,7 +31,7 @@ export type { TerrainOptions } from './build';
  * a grid cell: albedo variation at 2-60 m and a bump normal from the same noise. Both fade
  * with distance, before the noise would alias (shimmer) at a few pixels per period.
  */
-const DETAIL_GLSL = /* glsl */ `
+export const TERRAIN_DETAIL_GLSL = /* glsl */ `
 float tHash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float tNoise(vec2 p) {
   vec2 i = floor(p), f = fract(p);
@@ -303,7 +303,7 @@ export class Terrain extends Mesh<BufferGeometry, MeshStandardMaterial> {
     this.material.onBeforeCompile = (shader) => {
       this.injectSunVisibility(shader);
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\n' + DETAIL_GLSL)
+        .replace('#include <common>', '#include <common>\n' + TERRAIN_DETAIL_GLSL)
         .replace('#include <color_fragment>', '#include <color_fragment>\n' + DETAIL_ALBEDO)
         .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + DETAIL_NORMAL);
     };

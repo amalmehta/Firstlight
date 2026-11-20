@@ -155,6 +155,61 @@ how it was checked, and what changed.
   and grainy at reduced resolution; no temporal accumulation; light scattered through a cloud
   onto the ground is not added (shadows under thin cloud are slightly too dark).
 
+## Alpine valley demo: settle to path-traced light (2026-11-20)
+
+| Raster (what you see while moving) | Settled: 64 path-traced samples |
+|---|---|
+| ![](images/settle-raster.jpg) | ![](images/settle-traced.jpg) |
+
+| 1:1 crop, raster ‖ traced | Where they differ (luminance, blue 0 → orange ≥ 0.15) |
+|---|---|
+| ![](images/settle-crop.jpg) | ![](images/settle-diff.jpg) |
+
+- **What:** when the view has been still for 400 ms, three-gpu-pathtracer 0.0.28 (WebGL path)
+  traces the surfaces; the composite keeps drawing the sky, haze, clouds, exposure and tone
+  mapping, and fades the traced surface light in over 0.7 s. Any change returns the raster
+  frame on the next frame (measured: 20 ms, samples back to 0); a restart costs 24 ms.
+- **Agreement (1536×960, same view, after tone mapping):** mean luminance traced/raster 0.986
+  overall, 0.983 on the mountains, 0.996 on the near ground; SSIM 0.98 after a 2 px blur
+  (0.84 raw: the remaining grain). So the two light paths agree on energy; the differences
+  are where the raster approximations are:
+  - The mirror sphere's lower half: the raster reflects the prefiltered sky (grey below the
+    horizon), the tracer reflects the actual meadow and the pillar.
+  - Contact shadows at the bases of the sphere and pillar, which GTAO only hints at.
+  - Small terrain shadows on the mountain faces that the 39 m sun-visibility grid misses.
+  - A faint cell pattern on the raster ground (2–5% luminance) that the traced ground lacks;
+    its scale matches the 39 m terrain grid, so the sun-visibility or sky-occlusion bake is
+    the likely source. Logged as the first use of the traced frame as ground truth.
+- **Found by looking, in order:**
+  - The library's cube→equirect converter includes a shader chunk three 0.187 removed, so
+    setup threw. The stage now renders its sky straight into a 256×128 float equirect map.
+  - The traced frame stayed black: adding the cloud-shadow texture pushed the shader to 17
+    texture units (limit 16) and the link failed silently. Primary misses now add zero in the
+    shader instead of via a black background texture (one unit back), and link status is
+    checked once so a failure turns settle off with a console message.
+  - The terrain came out grey: 0.0.28 merges RGB vertex colours into its RGBA buffer with
+    source and target swapped, leaving zeros. Workaround: hand it an RGBA copy.
+  - The traced ground looked flatter than the raster one: the terrain's 2–60 m albedo noise
+    and bump normals live in its raster shader only. Ported into the traced shader (marked
+    by vertex alpha; bump gradient by finite differences instead of screen derivatives).
+  - Fireflies around the mirror sphere (ground → mirror → bright sky near the sun): the
+    library's glossy filter at 0.5 cut them from 217 to 32 bright pixels in the crop.
+  - Uneven tile cost (above): small tiles and an adaptive tiles-per-frame count.
+- **Cost (hidden browser pane, 1536×960):** first stillness to first traced sample 6–15 s
+  across runs (BVH of the 524k-triangle valley built in a worker, single-threaded without
+  cross-origin isolation, ~5 s; plus two main-thread tasks of ~0.36 s tracer setup and
+  ~0.6 s geometry merge); 16 samples at ~37 s, 64 at ~105 s. Tracer GPU time per frame
+  (timer queries): median 24.5 ms, p95 36 ms, max 55 ms. Wall-clock frames in the hidden pane
+  showed further stalls of 0.1–2 s that timer queries do not attribute to our commands; a
+  visible-window check is on the checklist.
+- **Self-check:** a new row runs 2 samples and passes (4–7 s; 36% of pixels sky with alpha 0,
+  64% surface with alpha 1; cloud and terrain patches applied; shader linked). It exists
+  because the 16-texture-unit failure above was silent. 11/11 rows pass on the dev server and
+  on the production build; the production console shows no warnings or errors.
+- **Not verified:** time to converge and orbit smoothness in a visible window; other GPUs.
+- **Known limits:** haze and clouds are not traced; the sun is a delta light (sharp
+  shadows); other custom shader edits are invisible to the tracer; no denoiser.
+
 ## Hello example (examples/hello.html), 2026-11-19
 
 The same stage in 15 lines: terrain plus a steel sphere. It exists to prove the "30 lines"

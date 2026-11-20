@@ -197,6 +197,55 @@ rows.push({
   stage.controls.maxPolarAngle = Math.PI * 0.495;
 }
 
+// 8. Settle (path tracing): the tracer's patched shader links and produces finite light, with
+// coverage alpha 0 on the sky (so the composite keeps the raster sky) and 1 on the ground.
+{
+  stage.setView({ position: [0, 2600, 9000], target: [0, 1400, 0] }); // valley below, sky above
+  stage.setPathTracing({ samples: 2, delayMs: 0, minSamples: 1, fadeMs: 0 });
+  await stage.settle();
+  const t0 = performance.now();
+  // Drive frames directly (animation frames and timers are throttled in a background tab),
+  // waiting for the GPU after each so no backlog builds up. Plain message-channel tasks, not
+  // scheduler.yield(): its continuations outrank ordinary tasks, and a tight loop of them
+  // starves the module download and the BVH worker's messages.
+  const gl2 = stage.renderer.getContext() as WebGL2RenderingContext;
+  const nextTask = () => new Promise<void>((r) => { const c = new MessageChannel(); c.port1.onmessage = () => r(); c.port2.postMessage(0); });
+  while (stage.getPathTraceState().samples < 2 && !stage.getPathTraceState().unavailable && performance.now() - t0 < 90000) {
+    stage.render();
+    const sync = gl2.fenceSync(gl2.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+    gl2.flush();
+    while (gl2.clientWaitSync(sync, 0, 0) === gl2.TIMEOUT_EXPIRED) await nextTask();
+    gl2.deleteSync(sync);
+    await nextTask();
+  }
+  const st = stage.getPathTraceState();
+  const tracer = (stage as unknown as { pathTracer: { tracer: { target: import('three').WebGLRenderTarget } } }).pathTracer.tracer;
+  let finite = true;
+  let sky = 0;
+  let solid = 0;
+  let px = 0;
+  if (st.samples >= 2) {
+    const rt = tracer.target;
+    const buf = new Float32Array(rt.width * rt.height * 4);
+    stage.renderer.readRenderTargetPixels(rt, 0, 0, rt.width, rt.height, buf);
+    px = rt.width * rt.height;
+    for (let i = 0; i < px; i++) {
+      for (let k = 0; k < 4; k++) if (!Number.isFinite(buf[i * 4 + k])) finite = false;
+      const a = buf[i * 4 + 3];
+      if (a < 0.01 && buf[i * 4] + buf[i * 4 + 1] + buf[i * 4 + 2] === 0) sky++;
+      if (a > 0.99) solid++;
+    }
+  }
+  rows.push({
+    name: 'Path tracing: shader links (with cloud-shadow and terrain patches), 2 samples finite, sky alpha 0 and ground alpha 1',
+    result: st.unavailable
+      ? 'unavailable (see console)'
+      : `${st.samples} samples in ${((performance.now() - t0) / 1000).toFixed(1)} s, cloud patch ${st.cloudShadows}, finite ${finite}, ${((sky / Math.max(px, 1)) * 100).toFixed(0)}% sky, ${((solid / Math.max(px, 1)) * 100).toFixed(0)}% surface`,
+    pass: !st.unavailable && st.samples >= 2 && st.cloudShadows && finite && sky > px * 0.05 && solid > px * 0.05,
+  });
+  stage.setPathTracing(false);
+}
+
 // 6. No WebGL errors.
 const gl = stage.renderer.getContext();
 const err = gl.getError();

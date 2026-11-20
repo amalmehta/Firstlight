@@ -62,6 +62,7 @@
       <p><strong>Real light units.</strong> Sunlight arrives at 133,800 lux above the air. The demo meters the light at the camera like a photographer's light meter and picks the exposure (EV) for it, so noon and dusk both look right. Switch Settings → Metering to Sunny 16 to see how a fixed camera would see dusk: nearly black.</p>
       <p>Blue light scatters about 5.7× more than red (Rayleigh: σ ∝ λ<sup>−4</sup>, and (680/440)<sup>4</sup> ≈ 5.7), so a low sun, seen through a long path, turns orange. The sky is precomputed into three small tables each frame, following <a href="https://sebh.github.io/publications/egsr2020.pdf" target="_blank" rel="noopener">Hillaire 2020</a>.</p>
       <p>Clouds are a cumulus layer marched through 3D noise. Light reaches each point through the same atmosphere (so a low sun warms them), scatters mostly forward (<a href="https://research.nvidia.com/labs/rtr/approximate-mie/" target="_blank" rel="noopener">a fitted Mie phase function</a>), and bounces many times inside; that last part is an approximation checked against a path tracer. Their shadows fall on the ground, the objects and the haze.</p>
+      <p>Stop moving and, after a moment, the picture settles: a path tracer (<a href="https://github.com/gkjohnson/three-gpu-pathtracer" target="_blank" rel="noopener">three-gpu-pathtracer</a>) follows light rays bouncing between the ground, the stone and the mirror, and its result fades in over the fast approximations. The readout under the sliders counts its samples. Move again and the fast frame is back at once.</p>
       <p class="fine">Light is in lux and cd/m². Terrain colours are estimates; the atmosphere constants are Earth's, cited in the docs. The meter treats the RGB channels as luminance, which is approximate.</p>
     </details>
   </section>
@@ -90,6 +91,12 @@
         <select id="tone">
           <option value="agx">AgX: natural highlights</option>
           <option value="aces">ACES: more contrast</option>
+        </select>
+      </label>
+      <label class="field"><span>When the view is still</span>
+        <select id="settle">
+          <option value="on">Settle to path-traced light</option>
+          <option value="off">Stay rasterised</option>
         </select>
       </label>
       <label class="field"><span>Page theme</span>

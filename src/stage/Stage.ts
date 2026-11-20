@@ -5,6 +5,9 @@ import {
   BufferAttribute,
   BufferGeometry,
   CubeCamera,
+  DataTexture,
+  EquirectangularReflectionMapping,
+  RGBAFormat,
   DepthTexture,
   DirectionalLight,
   FloatType,
@@ -46,7 +49,8 @@ import { ScreenAO, type AOOptions } from './ambientOcclusion';
 import { Clouds, type CloudOptions } from '../clouds/Clouds';
 import { yieldTask } from './yieldTask';
 import { compileWithDeadline } from './compile';
-import { AERIAL_FRAG, AERIAL_KM_PER_SLICE, AERIAL_SLICES, COMPOSITE_FRAG, ENV_FRAG, ENV_VERT, SKY_FRAG, SKY_VERT } from './shaders';
+import { PathTrace, type PathTraceOptions } from '../pathtrace/PathTrace';
+import { AERIAL_FRAG, AERIAL_KM_PER_SLICE, AERIAL_SLICES, COMPOSITE_FRAG, ENV_EQUIRECT_FRAG, ENV_FRAG, ENV_VERT, SKY_FRAG, SKY_VERT } from './shaders';
 
 type Vec3 = [number, number, number];
 
@@ -86,6 +90,12 @@ export interface StageOptions {
    * ({ coverage, altitude, extinction, ... }). They shadow the ground, objects and haze.
    */
   clouds?: boolean | CloudOptions;
+  /**
+   * Settle to a path-traced frame when the view is still (three-gpu-pathtracer, loaded on first
+   * use). Default off. Pass true, or options ({ samples, delayMs, bounces, ... }). Traced light
+   * replaces the raster surface lighting; the sky, haze and clouds are drawn as before.
+   */
+  pathTrace?: boolean | PathTraceOptions;
   /** Text summary for screen readers: what the scene shows. */
   label?: string;
   /** Tone mapping operator. Default 'agx'. */
@@ -209,6 +219,18 @@ export class Stage {
   private cloudSunT = 1;
   private cloudProbeKey = '';
   private cloudProbeBusy = false;
+  private pathTracer: PathTrace | null = null;
+  private ptDirty = true;
+  private ptSig = '';
+  private ptRasterValid = false;
+  private ptStill = 0;
+  private ptFadeStart = 0;
+  private ptFade = 0;
+  private ptTimer = 0;
+  private ptPoll = 0;
+  private ptLastStep = 0;
+  private ptNeedsRestart = true;
+  private envEq: { quad: FullScreenQuad; target: WebGLRenderTarget } | null = null;
 
   constructor(container: HTMLElement, opts: StageOptions = {}) {
     this.container = container;
@@ -303,6 +325,8 @@ export class Stage {
         tDepth: { value: this.hdr.depthTexture },
         tAerial: { value: this.aerial.texture },
         uAerialOn: { value: 1 },
+        tSettle: { value: null },
+        uSettle: { value: 0 },
       },
       vertexShader: FULLSCREEN_VERT,
       fragmentShader: COMPOSITE_FRAG,
@@ -328,6 +352,8 @@ export class Stage {
       c.marchMat.uniforms.uAerialSlices.value = AERIAL_SLICES;
       c.marchMat.uniforms.uAerialKmPerSlice.value = AERIAL_KM_PER_SLICE;
     }
+
+    if (opts.pathTrace) this.setPathTracing(opts.pathTrace);
 
     this.sun = new DirectionalLight(0xffffff, 1);
     this.sun.name = 'Sun';
@@ -499,6 +525,7 @@ export class Stage {
           this.staging = false;
         }
         this.shadowsDirty = true;
+        this.pathTracer?.markSceneDirty();
         await this.stagedFrame();
         this.invalidate();
       });
@@ -609,7 +636,16 @@ export class Stage {
   /** Ask for a frame. Cheap to call often: several calls in one frame draw once.
    * Pass { shadows: true } after moving objects outside loop(), so shadows follow. */
   invalidate(opts?: { shadows?: boolean }): void {
-    if (opts?.shadows) this.shadowsDirty = true;
+    if (opts?.shadows) {
+      this.shadowsDirty = true;
+      this.pathTracer?.markSceneDirty();
+    }
+    this.ptDirty = true;
+    this.requestFrame();
+  }
+
+  /** A frame without marking the view changed (drives path-traced accumulation). */
+  private requestFrame(): void {
     if (this.frameRequested || this.disposed) return;
     this.frameRequested = true;
     requestAnimationFrame((t) => this.tick(t));
@@ -823,7 +859,180 @@ export class Stage {
   /** Draw one frame now. Normally you call invalidate() instead. */
   render(): void {
     if (!this.warm || this.staging) return; // shaders still warming; a frame follows when ready
-    this.renderSteps(Infinity);
+    const pt = this.pathTracer;
+    if (!pt) {
+      this.renderSteps(Infinity);
+      return;
+    }
+    const now = performance.now();
+    const sig = this.viewSignature();
+    const changed = this.ptDirty || sig !== this.ptSig || !!this.loopFn;
+    this.ptDirty = false;
+    this.ptSig = sig;
+    if (changed || !this.ptRasterValid) {
+      if (changed) {
+        // Anything moved: back to raster at once, and wait for stillness again.
+        pt.reset();
+        this.ptFade = 0;
+        this.ptFadeStart = 0;
+        this.ptStill = now;
+        this.ptNeedsRestart = true;
+        this.ptLastStep = 0;
+        this.compositeMat.uniforms.uSettle.value = 0;
+      }
+      this.renderSteps(Infinity);
+      this.ptRasterValid = true;
+      if (!this.loopFn) {
+        clearTimeout(this.ptTimer);
+        this.ptTimer = window.setTimeout(() => {
+          this.ptTimer = 0;
+          this.requestFrame();
+        }, pt.opts.delayMs);
+      }
+      return;
+    }
+    if (now - this.ptStill < pt.opts.delayMs) return; // the timer brings the next frame
+    this.traceStep(pt, now);
+  }
+
+  /** Camera pose, projection and buffer size: what a traced accumulation depends on per view. */
+  private viewSignature(): string {
+    const c = this.camera;
+    c.updateMatrixWorld();
+    return `${c.matrixWorld.elements.join(',')}|${c.projectionMatrix.elements.join(',')}|${this.hdr.width}x${this.hdr.height}`;
+  }
+
+  /**
+   * The view has been still for delayMs: add a tile of a path-traced sample and composite it
+   * over the last raster frame (whose sky, aerial volume and clouds are still valid, so none of
+   * them is redrawn). Keeps requesting frames until `samples` is reached, then the GPU idles.
+   */
+  private traceStep(pt: PathTrace, now: number): void {
+    if (pt.unavailable) {
+      this.compositeMat.uniforms.uSettle.value = 0;
+      return;
+    }
+    if (!pt.ready) {
+      if (this.ptPoll) return;
+      const hide = [this.skyMesh];
+      const env = () => this.skyEquirect();
+      void this.compileEquirect()
+        .then(() => pt.prepare(this.renderer, this.scene, this.camera, hide, env))
+        .catch((e) => console.error('Firstlight: path tracing setup failed;', e))
+        .then(() => {
+          // The tracer's shader compiles in parallel after the build: check back every 100 ms
+          // (a frame then re-runs this, which also rebuilds if the scene changed meanwhile).
+          this.ptPoll = 0;
+          if (this.disposed || pt.unavailable) return;
+          if (pt.ready) this.requestFrame();
+          else
+            this.ptPoll = window.setTimeout(() => {
+              this.ptPoll = 0;
+              this.requestFrame();
+            }, 100);
+        });
+      this.ptPoll = -1; // a prepare is in flight
+      return;
+    }
+    if (this.ptNeedsRestart) {
+      pt.restart(this.scene, () => this.skyEquirect());
+      this.ptNeedsRestart = false;
+    }
+    const t0 = now;
+    const o = pt.opts;
+    // Frame-to-frame time while tracing is the GPU time of this frame's tiles plus the composite.
+    if (this.ptLastStep && now - this.ptLastStep < 1000) pt.adaptFrame(now - this.ptLastStep);
+    this.ptLastStep = now;
+    if (pt.samples < o.samples) pt.step(this.renderer);
+    if (pt.samples >= o.minSamples) {
+      if (!this.ptFadeStart) this.ptFadeStart = now;
+      this.ptFade = this.reducedMotion || o.fadeMs <= 0 ? 1 : Math.min(1, (now - this.ptFadeStart) / o.fadeMs);
+    }
+    const cu = this.compositeMat.uniforms;
+    cu.tSettle.value = pt.texture;
+    cu.uSettle.value = this.ptFade;
+    this.renderer.setRenderTarget(null);
+    this.composite.render(this.renderer);
+    this.lastRenderMs = performance.now() - t0;
+    for (const f of this.renderListeners) f();
+    if (pt.samples < o.samples || this.ptFade < 1) this.requestFrame();
+  }
+
+  private equirectPass(): { quad: FullScreenQuad; target: WebGLRenderTarget } {
+    if (!this.envEq) {
+      const mat = new ShaderMaterial({
+        uniforms: { ...this.atmosphere.uniforms, uCamAtm: { value: this.camAtm } },
+        vertexShader: FULLSCREEN_VERT,
+        fragmentShader: ENV_EQUIRECT_FRAG,
+        depthTest: false,
+        depthWrite: false,
+      });
+      this.envEq = { quad: new FullScreenQuad(mat), target: new WebGLRenderTarget(256, 128, { type: FloatType, depthBuffer: false }) };
+    }
+    return this.envEq;
+  }
+
+  private async compileEquirect(): Promise<void> {
+    const { quad } = this.equirectPass();
+    const tmp = new Scene();
+    const m = new Mesh(this.skyMesh.geometry, quad.material as Material);
+    m.frustumCulled = false;
+    tmp.add(m);
+    await compileWithDeadline(this.renderer, tmp, this.camera);
+  }
+
+  /**
+   * The environment as the raster materials see it (sky plus the flat-ground term below the
+   * horizon, no sun disk), at the current sun and exposure, as a 256×128 float equirect map.
+   * Read back to the CPU because the tracer builds its importance-sampling tables there.
+   */
+  private skyEquirect(): DataTexture {
+    const { quad, target } = this.equirectPass();
+    const prev = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(target);
+    quad.render(this.renderer);
+    const data = new Float32Array(target.width * target.height * 4);
+    this.renderer.readRenderTargetPixels(target, 0, 0, target.width, target.height, data);
+    this.renderer.setRenderTarget(prev);
+    const tex = new DataTexture(data, target.width, target.height, RGBAFormat, FloatType);
+    tex.mapping = EquirectangularReflectionMapping;
+    tex.minFilter = tex.magFilter = LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  /**
+   * Turn settle-to-path-traced on (true or options) or off (false). See StageOptions.pathTrace.
+   */
+  setPathTracing(opts: boolean | PathTraceOptions): this {
+    if (opts === false) {
+      this.pathTracer?.dispose();
+      this.pathTracer = null;
+      this.compositeMat.uniforms.uSettle.value = 0;
+      this.compositeMat.uniforms.tSettle.value = null;
+    } else if (this.pathTracer) {
+      if (typeof opts === 'object') this.pathTracer.set(opts);
+    } else {
+      this.pathTracer = new PathTrace(typeof opts === 'object' ? opts : {}, this.clouds?.shadowUniforms ?? null, this.camera.position);
+    }
+    this.ptRasterValid = false;
+    this.invalidate();
+    return this;
+  }
+
+  /** Path tracing progress: samples so far, the fade (0 raster … 1 traced) and the target. */
+  getPathTraceState(): { enabled: boolean; samples: number; target: number; fade: number; tiles: number; tilesPerFrame: number; unavailable: boolean; cloudShadows: boolean } {
+    const pt = this.pathTracer;
+    return {
+      tiles: pt?.tiles ?? 0,
+      tilesPerFrame: pt?.tilesPerFrame ?? 0,
+      enabled: !!pt,
+      samples: pt?.samples ?? 0,
+      target: pt?.opts.samples ?? 0,
+      fade: pt ? this.ptFade : 0,
+      unavailable: pt?.unavailable ?? false,
+      cloudShadows: pt?.cloudShadowPatched ?? false,
+    };
   }
 
   /**
@@ -936,6 +1145,11 @@ export class Stage {
     this.ao.dispose();
     this.aerial.dispose();
     this.clouds?.dispose();
+    this.pathTracer?.dispose();
+    this.envEq?.quad.dispose();
+    this.envEq?.target.dispose();
+    clearTimeout(this.ptTimer);
+    if (this.ptPoll > 0) clearTimeout(this.ptPoll);
     this.renderer.dispose();
     this.canvas.remove();
   }

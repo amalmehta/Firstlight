@@ -42,3 +42,6 @@
 
 13. "Yes, clouds"
    → Volumetric cumulus: GPU noise, Jendersie & d'Eon phase function (constants checked against the paper), Frostbite integration. A Monte Carlo slab path tracer showed the usual a = b = c = ½ octaves 2.5–6× too dark; refitted to N 8, a 0.8, b 0.9, c 0.25 (35% RMS). Fixed marshmallow shapes (noise range squashed to 0.71–0.92), a step ping-pong bug, low-sun shadow stripes, and 1.4 s shader compiles from unrolled loops (now 0.11 s). Cloud shadows reach the ground, objects, haze and the meter; Cloud cover slider in the demo.
+
+14. "Yes, settle mode"
+   → Settle to path-traced light when the view is still: three-gpu-pathtracer 0.0.28 (WebGL path, loaded on first use) replaces surface light only; the composite keeps sky, haze, clouds and exposure. Found and worked around: three 0.187 lacks a shader chunk the library's cube converter needs (sky now rendered straight to an equirect), the cloud-shadow texture pushed the shader past 16 texture units (link failed silently; now checked), an upstream bug zeroing RGB vertex colours, and terrain detail living only in the raster shader (ported). Tiles adapt to ~30 ms frames. Converged frame within 2% of raster brightness.

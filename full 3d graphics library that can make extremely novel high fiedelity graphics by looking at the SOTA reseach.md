@@ -563,6 +563,7 @@ CHANGELOG:
 - 2026-11-19 — erosion filter (roadmap item 2); terrain built in a Web Worker via Terrain.load
 - 2026-11-19 — parallel shader compile + staged first frames: longest load task 412–465 ms → 126–234 ms
 - 2026-11-19 — volumetric clouds (roadmap item 4): octaves refitted against a Monte Carlo path tracer; cloud shadows on ground, objects, haze and meter; Cloud cover slider
+- 2026-11-20 — settle to path-traced light when the view is still (roadmap item 6, three-gpu-pathtracer's WebGL path; sky, haze and clouds still composited)
 - 2026-09-15 — added meta-instruction: built-out applications include a small feedback tab
 - 2026-09-15 — added meta-instruction: no "Claude" attribution in commits, PRs, or branches
 - 2026-09-16 — added meta-instruction: always include a README when adding to GitHub
