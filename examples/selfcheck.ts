@@ -12,6 +12,7 @@ const show = () => {
 
 // 1. GPU transmittance LUT vs CPU reference, texel by texel.
 const stage = createStage(document.getElementById('stage')!);
+await stage.ready; // shaders compile in parallel first
 stage.render();
 const [w, h] = LUT_SIZES.transmittance;
 const buf = new Uint16Array(w * h * 4);
@@ -84,7 +85,7 @@ rows.push({
 {
   const terrain = new Terrain({ seed: 7 });
   stage.add(terrain);
-  stage.render();
+  await stage.settle(); // terrain is inserted once its shaders have compiled
   const t = terrain as unknown as { skyOccTarget: import('three').WebGLRenderTarget; size: number };
   const n = 513;
   const buf = new Uint16Array(n * n * 4);

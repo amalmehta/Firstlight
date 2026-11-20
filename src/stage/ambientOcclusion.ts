@@ -65,6 +65,12 @@ export class ScreenAO {
     this.uniforms.uFlAO.value = this.pass.pdRenderTarget.texture;
   }
 
+  /** GTAO's internal materials (for compiling ahead of the first frame). */
+  get materials(): Material[] {
+    const p = this.pass as unknown as { gtaoMaterial: Material; pdMaterial: Material; normalMaterial: Material };
+    return [p.gtaoMaterial, p.pdMaterial, p.normalMaterial];
+  }
+
   /** frameWidth/Height: the HDR target's size in pixels. */
   setSize(frameWidth: number, frameHeight: number): void {
     this.pass.setSize(

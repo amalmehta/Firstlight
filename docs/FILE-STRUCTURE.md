@@ -21,6 +21,7 @@ src/stage/
                            froxel aerial perspective, composite, on-demand loop, snapshot, benchmark
   shaders.ts               Sky background, environment cube, aerial volume, composite
   ambientOcclusion.ts      GTAO computed via three's GTAOPass, applied to indirect light only
+  yieldTask.ts             Yield to the browser without throttled timers (staged warm-up)
 src/terrain/
   noise.ts                 Seeded gradient noise, fBm, ridged multifractal
   build.ts                 Pure terrain build: heights, erosion, normals, colours, mesh arrays

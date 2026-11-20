@@ -96,6 +96,17 @@ losing them is harmless.
   1536×1152. The 32×32×32 volume (2 km per slice on a square-root curve, 64 km
   reach) costs about 2 ms and looks the same by eye. Trade-off: transmittance
   is stored as a grey average (alpha), as in the paper.
+- **No freeze while shaders compile.** Two causes, measured separately on Chrome/macOS:
+  (1) GLSL compile+link, which `KHR_parallel_shader_compile` moves off the main thread
+  (`renderer.compileAsync`; raw WebGL: 0.5 ms on the main thread, 600 ms off it); and
+  (2) the *first draw* of each pipeline, which still stalls 30–230 ms while the GPU process
+  builds it, and can't be made async. So the stage compiles every internal pass material in
+  parallel before frames start (`stage.ready`), then runs its first frame in steps, one task
+  per step (`renderSteps(limit)`), yielding via `scheduler.yield`/`MessageChannel` (not
+  `setTimeout`, which hidden tabs throttle). `stage.add()` compiles new objects (and a
+  terrain's bakes, via `prepare()`) against the real scene's lights and environment, inserts
+  them hidden, then shows them one per task. Longest main-thread task at load went from
+  412–465 ms (two freezes) to 126–234 ms across runs (many short tasks).
 - **Erosion filter and off-thread terrain.** Heights are built on a 513² grid, then carved by
   an independent implementation of the stripe-based erosion filter Johansen describes (2026,
   after Clay John): 3 octaves of jittered-cell cosine gullies aligned across the local slope,
@@ -214,8 +225,11 @@ numeric sliders, clamped to their ranges.
 - No clouds; the sky is always clear.
 - Erosion is aesthetic, not hydrology: drainage lines can stop part-way down a slope, and
   at the 39 m grid some foothills form small pyramids rather than ridges.
-- First-render shader compilation still blocks the main thread for ~0.4 s; three's
-  `compileAsync` could hide it.
+- Each heavy pipeline's first draw is still one 100–230 ms task (Chrome/macOS builds it in
+  the GPU process on first use); several tasks at load exceed the 50 ms long-task line.
+  Smaller shaders or fewer variants would be the next lever.
+- In a hidden tab, three's `compileAsync` polls on throttled timers, so a page opened in
+  the background finishes loading slowly (it completes once visible).
 - Terrain sky occlusion works at grid resolution (39 m) and doesn't see sub-grid relief; the
   terrain-bounce share (35%) is a constant, not a solve.
 - GPU-timer frame costs vary about ±1.5 ms between runs in the app's hidden browser pane

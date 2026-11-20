@@ -11,6 +11,8 @@ import {
   ShaderMaterial,
   WebGLRenderTarget,
   type WebGLRenderer,
+  type Camera,
+  Scene,
   type Material,
   type WebGLProgramParametersWithUniforms,
   ShaderChunk,
@@ -18,6 +20,7 @@ import {
 } from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { Noise2D } from './noise';
+import { yieldTask } from '../stage/yieldTask';
 import { baseHeight, buildTerrainData, type TerrainData, type TerrainOptions } from './build';
 
 export type { TerrainOptions } from './build';
@@ -350,6 +353,32 @@ export class Terrain extends Mesh<BufferGeometry, MeshStandardMaterial> {
     }
   }
 
+  /**
+   * Compile the bake shaders without blocking (KHR_parallel_shader_compile via compileAsync).
+   * The stage calls this before inserting the terrain.
+   */
+  async prepare(renderer: WebGLRenderer, camera: Camera): Promise<void> {
+    const tmp = new Scene();
+    for (const q of [this.sunVisQuad, this.skyOccQuad]) {
+      const mesh = new Mesh(this.geometry, q.material as Material);
+      mesh.frustumCulled = false;
+      tmp.add(mesh);
+    }
+    await renderer.compileAsync(tmp, camera);
+    // Bake sky occlusion now, in its own task, rather than inside the first frame.
+    await yieldTask();
+    this.bakeSkyOcclusion(renderer);
+  }
+
+  private bakeSkyOcclusion(renderer: WebGLRenderer): void {
+    if (this.skyOccBaked) return;
+    const prev = renderer.getRenderTarget();
+    renderer.setRenderTarget(this.skyOccTarget);
+    this.skyOccQuad.render(renderer);
+    renderer.setRenderTarget(prev);
+    this.skyOccBaked = true;
+  }
+
   /** Turn terrain sky occlusion on or off (on by default). */
   setSkyOcclusion(on: boolean): void {
     this.terrainUniforms.uSkyOccOn.value = on ? 1 : 0;
@@ -357,14 +386,8 @@ export class Terrain extends Mesh<BufferGeometry, MeshStandardMaterial> {
 
   /** Called by the stage before each frame; recomputes visibility only when the sun moved. */
   setSunDirection(d: Vector3, renderer?: WebGLRenderer): void {
-    if (renderer && !this.skyOccBaked) {
-      // Sky occlusion doesn't depend on the sun: bake once, on the first frame.
-      const prev = renderer.getRenderTarget();
-      renderer.setRenderTarget(this.skyOccTarget);
-      this.skyOccQuad.render(renderer);
-      renderer.setRenderTarget(prev);
-      this.skyOccBaked = true;
-    }
+    // Sky occlusion doesn't depend on the sun: baked once (in prepare(), or here if needed).
+    if (renderer) this.bakeSkyOcclusion(renderer);
     const sd = this.terrainUniforms.uSunDirWorld.value as Vector3;
     if (sd.equals(d) && !this.sunVisDirty) return;
     sd.copy(d);

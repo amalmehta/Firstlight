@@ -97,6 +97,15 @@ how it was checked, and what changed.
   - It then moved to a Web Worker: the longest main-thread task went from ~4 s to 0.47 s.
 - **Also fixed:** below the horizon, the sky background showed a navy void before terrain loaded. It now shows lit ground seen through the air.
 
+## Load smoothness: shader compilation (2026-11-19)
+
+- **Measured with the long-task observer**, production build.
+- **Before:** two freezes of 412 and 465 ms.
+- **First attempt** (`compileAsync` alone, one big warm-up): worse, at 1107 and 491 ms. The warm-up lumped every first-draw cost into one task.
+- **Diagnosis:** compile+link is truly async (0.5 ms on the main thread). The first draw per pipeline is not (30–230 ms each).
+- **Fix:** staged first frames, one pipeline per task. New objects are inserted hidden and shown one per task. Yields use `scheduler.yield`/`MessageChannel`, because chained `setTimeout`s stalled the load in the throttled pane.
+- **After:** many short tasks, the longest 126–234 ms across runs. The self-check still passes.
+
 ## Hello example (examples/hello.html), 2026-11-19
 
 The same stage in 15 lines: terrain plus a steel sphere. It exists to prove the "30 lines"

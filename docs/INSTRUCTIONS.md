@@ -42,8 +42,9 @@ import { createStage, Terrain } from '../Firstlight/src/index.ts';
 | `stage.setExposureCompensation(stops)` | Brighter (+) or darker (−) than the exposure gives. |
 | `stage.getExposure()` | EV100 used, metered lux (total and from the sky), equivalent camera settings. |
 | `stage.setSunIlluminance(lux)` | Sun above the atmosphere; Earth is 133 800 lux. |
+| `await stage.ready` | Shaders have compiled (in parallel); frames start after this. |
 | `stage.onRender(fn)` | Run after each drawn frame (for readouts). |
-| `await stage.settle()` | Render until the exposure meter has caught up (its sky reading is asynchronous). |
+| `await stage.settle()` | Wait until added objects are in the scene and the exposure meter has caught up. `add()` inserts objects once their shaders have compiled. |
 | `ambientOcclusion` option / `stage.setAmbientOcclusion(on)` | GTAO on indirect light only (default on, about +0.6 ms). Options: `{ radius, resolution, samples }`. |
 | `terrain.setSkyOcclusion(on)` | Terrain sky-view factor on indirect light (default on; baked once). |
 | `shadowedHaze` option | Terrain shadows the haze (default on, about +0.8 ms). |

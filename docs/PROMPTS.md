@@ -36,3 +36,6 @@
 
 11. "Yes, erosion filter"
    → Independent implementation of the stripe-based erosion filter, iterated with top-down debug images and side-by-side views (900 m / 40 m). Terrain build moved to a Web Worker (Terrain.load) because it blocked the main thread for 2–4 s. heightAt now matches the mesh. Lit ground replaces the dark void below the horizon while terrain loads.
+
+12. "Yes, fix the stall"
+   → compileAsync alone made it worse (1107 ms); the cause turned out to be per-pipeline first-draw stalls, not GLSL compilation. Staged first frames (one pipeline per task) and objects inserted one per task brought the longest load task from 412–465 ms to 126–234 ms. Yields avoid throttled timers.

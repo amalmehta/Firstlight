@@ -100,6 +100,19 @@ export class Atmosphere {
     this.irradianceMat = make(SKY_IRRADIANCE_FRAG, LOOKUPS);
   }
 
+  /** The LUT pass materials (for compiling ahead of the first frame). */
+  get materials(): ShaderMaterial[] {
+    return [this.transmittanceMat, this.multiScatMat, this.skyViewMat, this.irradianceMat];
+  }
+
+  /** Draw LUT pass i once (its first draw is the slow one); used by the stage's staged warm-up. */
+  warmDraw(renderer: WebGLRenderer, i: number): void {
+    const targets = [this.transmittance, this.multiScattering, this.skyView, this.irradianceTarget];
+    const prev = renderer.getRenderTarget();
+    this.draw(renderer, this.materials[i], targets[i]);
+    renderer.setRenderTarget(prev);
+  }
+
   /** Change atmosphere parameters (e.g. a thicker haze); LUTs rebuild on next update. */
   setParams(p: Partial<AtmosphereParams>): void {
     Object.assign(this.params, p);

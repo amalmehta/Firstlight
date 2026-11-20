@@ -43,6 +43,7 @@ import {
   type CameraSettings,
 } from '../camera/photometry';
 import { ScreenAO, type AOOptions } from './ambientOcclusion';
+import { yieldTask } from './yieldTask';
 import { AERIAL_FRAG, AERIAL_SLICES, COMPOSITE_FRAG, ENV_FRAG, ENV_VERT, SKY_FRAG, SKY_VERT } from './shaders';
 
 type Vec3 = [number, number, number];
@@ -136,6 +137,11 @@ export class Stage {
   readonly atmosphere: Atmosphere;
   readonly sun: DirectionalLight;
   readonly canvas: HTMLCanvasElement;
+  /**
+   * Resolves once the stage's shaders have compiled. They compile in parallel on the GPU
+   * driver (KHR_parallel_shader_compile), so the page never freezes; frames start after.
+   */
+  readonly ready: Promise<void>;
   /** CPU time of the last render() call, ms. */
   lastRenderMs = 0;
 
@@ -172,6 +178,9 @@ export class Stage {
   private preExposure = 1;
   private envPreExposure = 1;
   private renderListeners: (() => void)[] = [];
+  private warm = false;
+  private staging = false;
+  private pendingAdds: Promise<void>[] = [];
   private shadowedHaze: boolean;
   private ao: ScreenAO;
   private skyMesh!: Mesh;
@@ -324,6 +333,59 @@ export class Stage {
     this.resizeObs = new ResizeObserver(() => this.resize());
     this.resizeObs.observe(container);
     this.resize();
+    this.ready = this.warmUp();
+  }
+
+  /** Run one frame step by step, yielding to the browser between steps (see renderSteps). */
+  private async stagedFrame(): Promise<void> {
+    const nextTask = yieldTask;
+    this.staging = true;
+    try {
+      for (let k = 1; k <= 8; k++) {
+        this.renderSteps(k);
+        await nextTask();
+      }
+    } finally {
+      this.staging = false;
+    }
+  }
+
+  /** Compile every internal pass material without blocking, then allow frames. */
+  private async warmUp(): Promise<void> {
+    const tmp = new Scene();
+    const quad = this.skyMesh.geometry;
+    const sphere = new SphereGeometry(1, 8, 4); // has normals, for GTAO's normal pass
+    const mats: Material[] = [
+      ...this.atmosphere.materials,
+      this.aerialMat,
+      this.compositeMat,
+      this.envMat,
+      this.skyMat,
+      ...this.ao.materials,
+    ];
+    for (const m of mats) {
+      const mesh = new Mesh(m === this.ao.materials[2] ? sphere : quad, m);
+      mesh.frustumCulled = false;
+      tmp.add(mesh);
+    }
+    try {
+      // GLSL translate + link in parallel on the driver (KHR_parallel_shader_compile).
+      await this.renderer.compileAsync(tmp, this.camera, this.scene);
+      // First draws still stall (pipeline creation in the GPU process): one pipeline per task.
+      const nextTask = yieldTask;
+      for (let i = 0; i < this.atmosphere.materials.length; i++) {
+        this.atmosphere.warmDraw(this.renderer, i);
+        await nextTask();
+      }
+      this.pmrem.compileCubemapShader();
+      await nextTask();
+      this.warm = true;
+      await this.stagedFrame();
+    } finally {
+      sphere.dispose();
+      this.warm = true;
+      this.invalidate();
+    }
   }
 
   get reducedMotion(): boolean {
@@ -334,7 +396,6 @@ export class Stage {
    * ground and shadows every lit material in the scene, including ones added later. */
   add(...objects: Object3D[]): this {
     for (const o of objects) {
-      this.scene.add(o);
       const shader = o as unknown as { shadeWithSun?: (m: Material) => void };
       if (typeof shader.shadeWithSun === 'function') this.sunShaders.push(shader.shadeWithSun.bind(o));
       // A heightfield also shadows the haze: air in a ridge's shadow stops scattering sunlight.
@@ -355,19 +416,66 @@ export class Stage {
       const sunAware = o as unknown as { setSunDirection?: (d: Vector3, r: WebGLRenderer) => void };
       if (typeof sunAware.setSunDirection === 'function') this.sunAware.push(sunAware as { setSunDirection: (d: Vector3, r: WebGLRenderer) => void });
     }
-    // Terrain shadows and ambient occlusion apply to every lit material, whichever was added first.
-    this.scene.traverse((node) => {
-      const mat = (node as Mesh).material;
-      if (!mat || node === this.skyMesh) return;
-      for (const m of Array.isArray(mat) ? mat : [mat]) {
-        for (const f of this.sunShaders) f(m);
-        this.ao.apply(m);
-      }
-    });
-    this.shadowsDirty = true;
-    this.invalidate();
+    // Patch every lit material (new and existing) for terrain shadows and ambient occlusion.
+    const patch = (root: Object3D) =>
+      root.traverse((node) => {
+        const mat = (node as Mesh).material;
+        if (!mat || node === this.skyMesh) return;
+        for (const m of Array.isArray(mat) ? mat : [mat]) {
+          for (const f of this.sunShaders) f(m);
+          this.ao.apply(m);
+        }
+      });
+    for (const o of objects) patch(o);
+    patch(this.scene);
+    // Compile the new objects' shaders (and a terrain's bake shaders) in parallel against this
+    // scene's lights and environment, then insert them: no frame waits on a compile.
+    const job = (async () => {
+      await this.ready;
+      await Promise.all(
+        objects.map(async (o) => {
+          const prep = (o as unknown as { prepare?: (r: WebGLRenderer, c: PerspectiveCamera) => Promise<void> }).prepare;
+          if (typeof prep === 'function') await prep.call(o, this.renderer, this.camera);
+          await this.renderer.compileAsync(o, this.camera, this.scene);
+        }),
+      );
+      // The aerial pass may have gained TERRAIN_SHADOW: compile that variant too.
+      const tmp = new Scene();
+      const m = new Mesh(this.skyMesh.geometry, this.aerialMat);
+      m.frustumCulled = false;
+      tmp.add(m);
+      await this.renderer.compileAsync(tmp, this.camera);
+    })()
+      .catch(() => undefined)
+      .then(async () => {
+        // First draws stall per pipeline, so give each new object its own task: insert them
+        // hidden, then show one at a time and draw a frame with just that one new.
+        const nextTask = yieldTask;
+        const vis = objects.map((o) => o.visible);
+        for (const o of objects) o.visible = false;
+        this.scene.add(...objects);
+        this.staging = true;
+        try {
+          for (let i = 0; i < objects.length; i++) {
+            objects[i].visible = vis[i];
+            this.shadowsDirty = true;
+            for (let k = 5; k <= 7; k++) {
+              this.renderSteps(k); // haze volume, AO G-buffer, then the scene pass
+              await nextTask();
+            }
+          }
+        } finally {
+          objects.forEach((o, i) => (o.visible = vis[i]));
+          this.staging = false;
+        }
+        this.shadowsDirty = true;
+        await this.stagedFrame();
+        this.invalidate();
+      });
+    this.pendingAdds.push(job);
     return this;
   }
+
 
   /** Move the sun. Recomputes the sky, the sun colour and (throttled) the environment light. */
   setSun({ elevation, azimuth }: { elevation?: number; azimuth?: number }): this {
@@ -418,6 +526,8 @@ export class Stage {
    * resolve. Use before reading getExposure() right after moving the sun.
    */
   async settle(): Promise<void> {
+    await this.ready;
+    while (this.pendingAdds.length) await this.pendingAdds.shift();
     this.render();
     for (let i = 0; i < 4 && this.meterPending; i++) {
       const p = this.meterPending;
@@ -649,6 +759,16 @@ export class Stage {
 
   /** Draw one frame now. Normally you call invalidate() instead. */
   render(): void {
+    if (!this.warm || this.staging) return; // shaders still warming; a frame follows when ready
+    this.renderSteps(Infinity);
+  }
+
+  /**
+   * One frame, stopped after `limit` steps. Staged warm-up runs it with limit 1, 2, … in
+   * separate tasks, so each pipeline's first draw (which stalls while the GPU process builds
+   * the pipeline) lands in its own task instead of one long freeze.
+   */
+  private renderSteps(limit: number): void {
     const t0 = performance.now();
     const cam = this.camera;
     if (this.ground) {
@@ -671,6 +791,7 @@ export class Stage {
       u.uSunIlluminance.value.setScalar(this.sunLux * this.preExposure);
       this.atmosphere.update(this.renderer, this.camAtm.y);
     }
+    if (limit <= 1) return;
     this.sun.color.setRGB(T[0], T[1], T[2]);
     this.sun.intensity = this.sunLux * this.preExposure;
     this.sun.visible = this.sunAngles.elevation > -1;
@@ -689,21 +810,27 @@ export class Stage {
       this.shadowsDirty = false;
     }
 
+    if (limit <= 2) return;
     this.updateEnvironment(t0);
+    if (limit <= 3) return;
     // The environment cube may be up to one throttle window old; rescale it to the current
     // exposure so ambient light never lags the camera.
     this.scene.environmentIntensity = this.preExposure / this.envPreExposure;
 
+    if (limit <= 4) return;
     for (let z = 0; z < AERIAL_SLICES; z++) {
       this.aerialMat.uniforms.uSlice.value = z;
       this.renderer.setRenderTarget(this.aerial, z);
       this.aerialQuad.render(this.renderer);
     }
 
+    if (limit <= 5) return;
     this.ao.update(this.renderer, [this.skyMesh]);
+    if (limit <= 6) return;
     this.renderer.setRenderTarget(this.hdr);
     this.renderer.render(this.scene, cam);
     this.renderer.setRenderTarget(null);
+    if (limit <= 7) return;
     this.composite.render(this.renderer);
     this.lastRenderMs = performance.now() - t0;
     for (const f of this.renderListeners) f();
