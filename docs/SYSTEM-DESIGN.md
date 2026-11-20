@@ -96,6 +96,14 @@ losing them is harmless.
   1536×1152. The 32×32×32 volume (2 km per slice on a square-root curve, 64 km
   reach) costs about 2 ms and looks the same by eye. Trade-off: transmittance
   is stored as a grey average (alpha), as in the paper.
+- **Terrain sky occlusion (sky-view factor).** Baked once per terrain (8.2 ms GPU, 513²): per
+  vertex, the horizon in 16 azimuths out to 8 km, then cosine-weighted sky irradiance above it
+  divided by the same with the horizon at 0° (Dozier & Frew's irradiance definition, made
+  relative because the environment map already holds the ground below the horizontal). Applied
+  to indirect light of every lit material, with 35% of blocked skylight put back as terrain bounce
+  (an estimate). CPU reference `terrain/skyView.ts` is unit-tested against closed forms; the
+  GPU bake matches it to 0.002 on the same height grid (self-check). Effect in the demo valley is
+  small (−1% mean brightness): the valley is wide open; gully walls are where it bites.
 - **Ambient occlusion on indirect light only.** three's GTAOPass (Jimenez 2016) computes AO
   in "Off" output mode from its own half-res normal/depth G-buffer; every lit material is
   patched to scale only indirect diffuse and indirect specular (via three's
@@ -195,9 +203,12 @@ numeric sliders, clamped to their ranges.
 - Aerial transmittance is grey (one channel), as in the paper.
 - Terrain is a single 20 km tile with no LOD.
 - No clouds; the sky is always clear.
-- Screen-space AO can't see terrain-scale occlusion far away (its search is capped in
-  pixels), so distant valleys and gullies get no skylight occlusion. A baked terrain
-  sky-view factor (horizon angles per grid texel, like the sun-visibility bake) is the fix.
+- Terrain sky occlusion works at grid resolution (39 m) and doesn't see sub-grid relief; the
+  terrain-bounce share (35%) is a constant, not a solve.
+- GPU-timer frame costs vary about ±1.5 ms between runs in the app's hidden browser pane
+  (default view measured 15.9 ms one session, 17.4 ms another). Same-run A/B deltas are
+  reliable; the absolute 60 fps claim at 1920×1200 is marginal and needs a visible-window
+  check (Settings → Measure).
 - A close-up view filling the frame with the mirror sphere costs ≈18.6 ms GPU at
   1920×1200 even without AO; Balanced quality is tuned for the default view.
 - Shadowed haze shades only single scattering; the multiple-scattering term (sky-like

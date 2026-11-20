@@ -69,6 +69,16 @@ how it was checked, and what changed.
   - 0.35 resolution with 8 samples: cheap but grainy.
   - 0.35 with 12 GTAO and 16 denoise samples: +0.6 ms at the default view (15.3 → 15.9 ms GPU, 1920×1200).
 
+## Alpine valley demo: terrain sky occlusion (2026-11-19)
+
+- **What:** a baked sky-view factor dims skylight where ridges and gully walls hide the sky.
+- **Checked:**
+  - **Unit tests:** cos²h for a pit, ½ for a wall, (1 + cos S)/2 for a tilted plane, and 1 for any open slope.
+  - **GPU vs CPU:** the bake matches the CPU reference to 0.002 at 64 vertices on the same height grid. Against the continuous noise it differs by 0.042, which is the grid's limit, not a bug.
+- **Visible effect:** −1% mean brightness in both views, at most −4 to −5%. That's small because this valley is wide open. Forcing occlusion to zero drops mean brightness from 116.5 to 81.6, which proves the wiring.
+- **Cost:** bake 8.2 ms once; per frame, zero within noise.
+- **Bug found:** a render target made with `.clone()` shares its texture source with the original, so the two bakes overwrote each other. Fixed with a separate target.
+
 ## Hello example (examples/hello.html), 2026-11-19
 
 The same stage in 15 lines: terrain plus a steel sphere. It exists to prove the "30 lines"

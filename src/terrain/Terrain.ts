@@ -122,7 +122,81 @@ void main() {
   gl_FragColor = vec4(vis, 0.0, 0.0, 1.0);
 }
 `;
+/**
+ * Sky occlusion bake (see skyView.ts for the maths and its tests). For every grid vertex:
+ * find the terrain horizon in 16 azimuths by marching the heightfield (out to 8 km), then
+ * integrate cosine-weighted sky over elevation (12 steps) above that horizon, divided by the
+ * same integral with the horizon at 0°. Open slopes get 1; floors of gullies and valleys
+ * walled by ridges get less. Independent of the sun, so it is baked once.
+ */
+const SKY_OCC_PASS = /* glsl */ `
+uniform sampler2D uHeightTex;
+uniform float uTerrainMaxH;
+${GRID_UV}
+varying vec2 vUv;
+float H(vec2 xz) { return texture(uHeightTex, gridUv(xz)).r; }
+float skyIntegral(float h, vec3 n, vec2 d) {
+  float nh = dot(n.xz, d);
+  float dT = (0.5 * PI - h) / 12.0;
+  float sum = 0.0;
+  for (int j = 0; j < 12; j++) {
+    float t = h + (float(j) + 0.5) * dT;
+    float ndw = cos(t) * nh + sin(t) * n.y;
+    sum += max(ndw, 0.0) * cos(t) * dT;
+  }
+  return sum;
+}
+void main() {
+  float nn = uTerrainSegments + 1.0;
+  vec2 xz = (floor(vUv * nn) / uTerrainSegments - 0.5) * uTerrainSize;
+  float cell = uTerrainSize / uTerrainSegments;
+  float hs = 0.5 * uTerrainSize;
+  float h0 = H(xz);
+  vec3 n = normalize(vec3(-(H(xz + vec2(cell, 0.0)) - H(xz - vec2(cell, 0.0))) / (2.0 * cell), 1.0,
+                          -(H(xz + vec2(0.0, cell)) - H(xz - vec2(0.0, cell))) / (2.0 * cell)));
+  vec3 p = vec3(xz.x, h0 + 1.5, xz.y);
+  float actual = 0.0, open = 0.0;
+  for (int i = 0; i < 16; i++) {
+    float phi = (float(i) + 0.5) * (2.0 * PI / 16.0);
+    vec2 d = vec2(cos(phi), sin(phi));
+    float tanH = 0.0; // horizons below 0° are clamped to 0° (the env map holds the ground)
+    float t = cell;
+    for (int k = 0; k < 40; k++) {
+      vec2 q = p.xz + d * t;
+      if (abs(q.x) > hs || abs(q.y) > hs || t > 8000.0) break;
+      tanH = max(tanH, (H(q) - p.y) / t);
+      t += max(cell, t * 0.15);
+    }
+    actual += skyIntegral(atan(tanH), n, d);
+    open += skyIntegral(0.0, n, d);
+  }
+  gl_FragColor = vec4(open > 1e-6 ? min(actual / open, 1.0) : 1.0, 0.0, 0.0, 1.0);
+}
+`;
+
+/**
+ * Blocked sky is not black: the terrain that blocks it reflects light too. Without a full
+ * bounce solve we put back a fixed share of the blocked skylight. 0.35 is an estimate (terrain
+ * albedo ~0.1-0.3 times its irradiance relative to the sky's, which ranges from well under 1 in
+ * shade to above 1 on sunlit slopes), not a measured value.
+ */
+const TERRAIN_BOUNCE = 0.35;
+
+const SKY_OCC_APPLY = /* glsl */ `
+{
+  float so = texture(uSkyOccTex, gridUv(vTerrainPos.xz)).r;
+  so = mix(1.0, so + (1.0 - so) * ${TERRAIN_BOUNCE.toFixed(2)}, uSkyOccOn);
+  reflectedLight.indirectDiffuse *= so;
+  #if defined( USE_ENVMAP ) && defined( STANDARD )
+    float soNV = saturate(dot(geometryNormal, geometryViewDir));
+    reflectedLight.indirectSpecular *= computeSpecularOcclusion(soNV, so, material.roughness);
+  #endif
+}
+`;
+
 const SUN_VIS_LOOKUP = /* glsl */ `
+uniform sampler2D uSkyOccTex;
+uniform float uSkyOccOn;
 uniform sampler2D uSunVisTex;
 ${GRID_UV}
 float sunVisibility(vec3 p) { return texture(uSunVisTex, gridUv(p.xz)).r; }
@@ -143,6 +217,9 @@ export class Terrain extends Mesh<PlaneGeometry, MeshStandardMaterial> {
   private sunVisTarget: WebGLRenderTarget;
   private sunVisQuad: FullScreenQuad;
   private sunVisDirty = true;
+  private skyOccTarget: WebGLRenderTarget;
+  private skyOccQuad: FullScreenQuad;
+  private skyOccBaked = false;
   private relief: number;
 
   constructor(opts: TerrainOptions = {}) {
@@ -205,11 +282,29 @@ export class Terrain extends Mesh<PlaneGeometry, MeshStandardMaterial> {
     this.terrainUniforms = {
       uHeightTex: { value: heightTex },
       uSunVisTex: { value: this.sunVisTarget.texture },
+      uSkyOccTex: { value: null as unknown },
+      uSkyOccOn: { value: 1 },
       uSunDirWorld: { value: new Vector3(0, 1, 0) },
       uTerrainSize: { value: size },
       uTerrainSegments: { value: segments },
       uTerrainMaxH: { value: maxH + 1 },
     };
+    // A separate target, not sunVisTarget.clone(): clones share the texture's source, and the two
+    // bakes then overwrite each other's GL texture.
+    this.skyOccTarget = new WebGLRenderTarget(n, n, {
+      type: HalfFloatType,
+      minFilter: LinearFilter,
+      magFilter: LinearFilter,
+      depthBuffer: false,
+    });
+    this.terrainUniforms.uSkyOccTex.value = this.skyOccTarget.texture;
+    this.skyOccQuad = new FullScreenQuad(
+      new ShaderMaterial({
+        uniforms: this.terrainUniforms,
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+        fragmentShader: '#define PI 3.14159265358979\n' + SKY_OCC_PASS,
+      }),
+    );
     this.sunVisQuad = new FullScreenQuad(
       new ShaderMaterial({
         uniforms: this.terrainUniforms,
@@ -267,10 +362,29 @@ export class Terrain extends Mesh<PlaneGeometry, MeshStandardMaterial> {
             'getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= tSunVis;',
           ),
       );
+    if (shader.fragmentShader.includes('#include <aomap_fragment>')) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <aomap_fragment>',
+        '#include <aomap_fragment>\n' + SKY_OCC_APPLY,
+      );
+    }
+  }
+
+  /** Turn terrain sky occlusion on or off (on by default). */
+  setSkyOcclusion(on: boolean): void {
+    this.terrainUniforms.uSkyOccOn.value = on ? 1 : 0;
   }
 
   /** Called by the stage before each frame; recomputes visibility only when the sun moved. */
   setSunDirection(d: Vector3, renderer?: WebGLRenderer): void {
+    if (renderer && !this.skyOccBaked) {
+      // Sky occlusion doesn't depend on the sun: bake once, on the first frame.
+      const prev = renderer.getRenderTarget();
+      renderer.setRenderTarget(this.skyOccTarget);
+      this.skyOccQuad.render(renderer);
+      renderer.setRenderTarget(prev);
+      this.skyOccBaked = true;
+    }
     const sd = this.terrainUniforms.uSunDirWorld.value as Vector3;
     if (sd.equals(d) && !this.sunVisDirty) return;
     sd.copy(d);
@@ -288,6 +402,8 @@ export class Terrain extends Mesh<PlaneGeometry, MeshStandardMaterial> {
     this.sunVisTarget.dispose();
     (this.terrainUniforms.uHeightTex.value as DataTexture).dispose();
     this.sunVisQuad.dispose();
+    this.skyOccTarget.dispose();
+    this.skyOccQuad.dispose();
   }
 
   /** Ground height (metres) at scene position x, z. Use it to place objects on the ground. */

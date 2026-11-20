@@ -1,5 +1,5 @@
 import { DataUtils } from 'three';
-import { createStage, EARTH, reference, LUT_SIZES } from '../src/index';
+import { createStage, EARTH, reference, LUT_SIZES, Terrain, skyView } from '../src/index';
 
 type Row = { name: string; result: string; pass: boolean };
 const rows: Row[] = [];
@@ -79,7 +79,74 @@ rows.push({
   pass: lit[0] > lit[1] && lit[1] > lit[2],
 });
 
-// 5. No WebGL errors.
+// 5. Terrain sky occlusion: GPU bake vs the CPU reference (skyView.skyOcclusion, unit-tested
+// against closed forms), at sample vertices, with the same horizon march on terrain.heightAt.
+{
+  const terrain = new Terrain({ seed: 7 });
+  stage.add(terrain);
+  stage.render();
+  const t = terrain as unknown as { skyOccTarget: import('three').WebGLRenderTarget; size: number };
+  const n = 513;
+  const buf = new Uint16Array(n * n * 4);
+  stage.renderer.readRenderTargetPixels(t.skyOccTarget, 0, 0, n, n, buf);
+  const cell = terrain.size / 512;
+  const half = terrain.size / 2;
+  // Sample the same 513² grid the GPU sees, bilinearly (heightAt has sub-grid detail the
+  // bake never sees, so comparing against it would test the grid, not the implementation).
+  const grid = new Float32Array(n * n);
+  const pos = terrain.geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const gx = Math.round((pos.getX(i) / terrain.size + 0.5) * 512);
+    const gz = Math.round((pos.getZ(i) / terrain.size + 0.5) * 512);
+    grid[gz * n + gx] = pos.getY(i);
+  }
+  const H = (x: number, z: number) => {
+    const fx = Math.min(Math.max((x / terrain.size + 0.5) * 512, 0), 512);
+    const fz = Math.min(Math.max((z / terrain.size + 0.5) * 512, 0), 512);
+    const x0 = Math.min(Math.floor(fx), 511), z0 = Math.min(Math.floor(fz), 511);
+    const tx = fx - x0, tz = fz - z0;
+    const g = (a: number, b: number) => grid[b * n + a];
+    return (g(x0, z0) * (1 - tx) + g(x0 + 1, z0) * tx) * (1 - tz) + (g(x0, z0 + 1) * (1 - tx) + g(x0 + 1, z0 + 1) * tx) * tz;
+  };
+  let maxErr = 0;
+  let worst = '';
+  let count = 0;
+  for (let iz = 40; iz < n - 40; iz += 53) {
+    for (let ix = 40; ix < n - 40; ix += 53) {
+      const x = (ix / 512 - 0.5) * terrain.size;
+      const z = (iz / 512 - 0.5) * terrain.size;
+      const y = H(x, z) + 1.5;
+      const nrm = [-(H(x + cell, z) - H(x - cell, z)) / (2 * cell), 1, -(H(x, z + cell) - H(x, z - cell)) / (2 * cell)];
+      const l = Math.hypot(nrm[0], nrm[1], nrm[2]);
+      const horizons: number[] = [];
+      for (let i = 0; i < 16; i++) {
+        const phi = ((i + 0.5) * 2 * Math.PI) / 16;
+        let tan = 0;
+        let s = cell;
+        for (let k = 0; k < 40; k++) {
+          const qx = x + Math.cos(phi) * s;
+          const qz = z + Math.sin(phi) * s;
+          if (Math.abs(qx) > half || Math.abs(qz) > half || s > 8000) break;
+          tan = Math.max(tan, (H(qx, qz) - y) / s);
+          s += Math.max(cell, s * 0.15);
+        }
+        horizons.push(Math.atan(tan));
+      }
+      const cpu = skyView.skyOcclusion(horizons, [nrm[0] / l, nrm[1] / l, nrm[2] / l], 12);
+      const gpu = DataUtils.fromHalfFloat(buf[(iz * n + ix) * 4]);
+      const err = Math.abs(gpu - cpu);
+      count++;
+      if (err > maxErr) { maxErr = err; worst = `vertex (${ix}, ${iz}): GPU ${gpu.toFixed(3)} vs CPU ${cpu.toFixed(3)}`; }
+    }
+  }
+  rows.push({
+    name: `Terrain sky occlusion: GPU bake vs CPU reference (same height grid) at ${count} vertices, within 0.02`,
+    result: `max difference ${maxErr.toFixed(3)} (${worst})`,
+    pass: maxErr < 0.02,
+  });
+}
+
+// 6. No WebGL errors.
 const gl = stage.renderer.getContext();
 const err = gl.getError();
 rows.push({ name: 'WebGL error flag after rendering', result: err === 0 ? 'none' : `0x${err.toString(16)}`, pass: err === 0 });

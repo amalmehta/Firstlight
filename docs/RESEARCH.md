@@ -110,7 +110,7 @@ with dependencies first.
   a ridge's shadow glows, and a shaded valley at golden hour looks foggy. This is also the
   basis for "god rays" through ridges.
 
-- **Terrain sky-view factor.** Bake, per grid texel, the fraction of sky the surrounding terrain
+- **Terrain sky-view factor — built 2026-11-19** (see VIZ-LOG.md). Bake, per grid texel, the fraction of sky the surrounding terrain
   leaves open (horizon angles in 8–16 directions). Like the sun-visibility bake, but it
   doesn't depend on the sun, so it's baked once. It covers the valley- and gully-scale
   skylight occlusion that GTAO can't see at distance.

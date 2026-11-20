@@ -30,3 +30,6 @@
 
 9. "Yes, add GTAO"
    → GTAO via three's GTAOPass, applied to indirect light only through a material patch. Tuned by inspecting the AO buffer and GPU timer queries: radius 10 m, 0.35 resolution, 12/16 samples, +0.6 ms. Found that screen-space AO can't do terrain-scale occlusion; proposed a baked terrain sky-view factor.
+
+10. "Yes, sky-view factor"
+   → Terrain sky occlusion: CPU reference tested against closed forms, GPU bake (8.2 ms once) matching it to 0.002, applied to indirect light with a 35% bounce estimate. The visible effect is small in this open valley (−1%). Fixed a render-target clone bug. Flagged that the absolute frame-time claim is marginal.

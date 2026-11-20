@@ -23,11 +23,13 @@ src/stage/
   ambientOcclusion.ts      GTAO computed via three's GTAOPass, applied to indirect light only
 src/terrain/
   noise.ts                 Seeded gradient noise, fBm, ridged multifractal
+  skyView.ts               Sky-view factor and relative sky occlusion (CPU reference, tested)
   Terrain.ts               Valley heightfield, albedo by slope and height, per-pixel detail,
                            baked sun visibility (also applied to your materials)
 
 tests/atmosphere.test.ts   Physics checks against Bucholtz 1995 and integration accuracy
 tests/photometry.test.ts Sunny 16, meter vs camera, grey-card exposure
+tests/skyView.test.ts    SVF closed forms: pit cos²h, wall ½, tilted plane, open slopes
 tests/terrain.test.ts      Determinism, ranges, mesh vs heightAt
 
 docs/                      README links: instructions, system design, concepts, viz log, prompts

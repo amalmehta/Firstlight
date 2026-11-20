@@ -45,6 +45,7 @@ import { createStage, Terrain } from '../Firstlight/src/index.ts';
 | `stage.onRender(fn)` | Run after each drawn frame (for readouts). |
 | `await stage.settle()` | Render until the exposure meter has caught up (its sky reading is asynchronous). |
 | `ambientOcclusion` option / `stage.setAmbientOcclusion(on)` | GTAO on indirect light only (default on, about +0.6 ms). Options: `{ radius, resolution, samples }`. |
+| `terrain.setSkyOcclusion(on)` | Terrain sky-view factor on indirect light (default on; baked once). |
 | `shadowedHaze` option | Terrain shadows the haze (default on, about +0.8 ms). |
 | `stage.invalidate({ shadows? })` | Ask for a frame after you change something yourself. |
 | `stage.loop((dt, t) => …)` | Opt into continuous animation (pass `null` to stop). |
