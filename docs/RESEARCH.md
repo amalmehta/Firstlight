@@ -34,7 +34,7 @@ with dependencies first.
   - A noon render at Sunny-16 settings should put an 18% grey card at mid-grey.
 - **Why first.** Purkinje shift (night), clouds, path tracing and splat relighting all need absolute luminance.
 
-### 2. Terrain erosion filter
+### 2. Terrain erosion filter — built 2026-11-19 (independent implementation; see VIZ-LOG.md)
 - **What.** Rune Skovbo Johansen's "Advanced Terrain Erosion Filter" (March 2026). It is
   evaluated per point, with no simulation, and gives branching gullies and sharp ridges plus
   approximate derivatives.

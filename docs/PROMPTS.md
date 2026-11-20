@@ -33,3 +33,6 @@
 
 10. "Yes, sky-view factor"
    → Terrain sky occlusion: CPU reference tested against closed forms, GPU bake (8.2 ms once) matching it to 0.002, applied to indirect light with a 35% bounce estimate. The visible effect is small in this open valley (−1%). Fixed a render-target clone bug. Flagged that the absolute frame-time claim is marginal.
+
+11. "Yes, erosion filter"
+   → Independent implementation of the stripe-based erosion filter, iterated with top-down debug images and side-by-side views (900 m / 40 m). Terrain build moved to a Web Worker (Terrain.load) because it blocked the main thread for 2–4 s. heightAt now matches the mesh. Lit ground replaces the dark void below the horizon while terrain loads.

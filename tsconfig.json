@@ -5,9 +5,18 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "noEmit": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "skipLibCheck": true,
     "isolatedModules": true
   },
-  "include": ["src", "tests", "demo", "examples"]
+  "include": [
+    "src",
+    "tests",
+    "demo",
+    "examples"
+  ]
 }

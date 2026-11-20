@@ -41,8 +41,6 @@ function meteringMode() { return prefs.metering === 'sunny16' ? SUNNY_16 : ('aut
 /* ---------- Scene ---------- */
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const container = $('stage');
-const terrain = new Terrain({ seed: 7 });
-const gy = terrain.heightAt(0, 0);
 
 let stage: Stage;
 try {
@@ -52,7 +50,7 @@ try {
     exposureCompensation: prefs.compensation,
     maxPixelRatio: prefs.quality,
     toneMapping: prefs.tone,
-    camera: { position: [-26, gy + 7, 46], target: [2, gy + 4, 0] },
+    camera: { position: [-26, 7, 46], target: [2, 4, 0] },
     label: $('scene-summary').textContent ?? undefined,
   });
 } catch (e) {
@@ -62,21 +60,7 @@ try {
   throw e;
 }
 
-// Two materials, two light paths: a mirror shows the sky (environment), rough stone shows
-// sun + sky diffuse light and the shadow.
-const steel = new Mesh(
-  new SphereGeometry(3.2, 128, 64),
-  new MeshStandardMaterial({ color: 0xd9d5cd, metalness: 1, roughness: 0.16 }),
-);
-steel.position.set(-3, terrain.heightAt(-3, 0) + 3.1, 0);
-const stone = new Mesh(
-  new CylinderGeometry(1.5, 1.9, 11, 7, 1),
-  new MeshStandardMaterial({ color: 0x8a8278, roughness: 0.85, metalness: 0, flatShading: true }),
-);
-stone.position.set(6, terrain.heightAt(6, -4) + 5.2, -4);
-stone.rotation.set(0.04, 0.5, -0.03);
-for (const m of [steel, stone]) m.castShadow = m.receiveShadow = true;
-stage.add(terrain, steel, stone);
+
 requestAnimationFrame(() => container.classList.add('ready'));
 (window as unknown as { stage: Stage }).stage = stage;
 
@@ -183,3 +167,27 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'r' || e.key === 'R') stage.resetCamera();
   if (e.key === 's' || e.key === 'S') void saveImage();
 });
+
+/* ---------- Terrain (last, so the controls above work while it builds) ---------- */
+// The sky draws at once; the valley is built in a Web Worker (a few seconds of noise and
+// erosion) and added when it arrives.
+$('meter').textContent = 'Building the valley…';
+const terrain = await Terrain.load({ seed: 7 });
+const gy = terrain.heightAt(0, 0);
+
+// Two materials, two light paths: a mirror shows the sky (environment), rough stone shows
+// sun + sky diffuse light and the shadow.
+const steel = new Mesh(
+  new SphereGeometry(3.2, 128, 64),
+  new MeshStandardMaterial({ color: 0xd9d5cd, metalness: 1, roughness: 0.16 }),
+);
+steel.position.set(-3, terrain.heightAt(-3, 0) + 3.1, 0);
+const stone = new Mesh(
+  new CylinderGeometry(1.5, 1.9, 11, 7, 1),
+  new MeshStandardMaterial({ color: 0x8a8278, roughness: 0.85, metalness: 0, flatShading: true }),
+);
+stone.position.set(6, terrain.heightAt(6, -4) + 5.2, -4);
+stone.rotation.set(0.04, 0.5, -0.03);
+for (const m of [steel, stone]) m.castShadow = m.receiveShadow = true;
+stage.add(terrain, steel, stone);
+stage.setView({ position: [-26, gy + 7, 46], target: [2, gy + 4, 0] }, { home: true });

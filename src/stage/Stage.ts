@@ -472,6 +472,20 @@ export class Stage {
     return this;
   }
 
+  /**
+   * Set the camera. With { home: true } this also becomes the view resetCamera() returns to
+   * (useful once terrain has loaded and the ground height is known).
+   */
+  setView(view: { position: Vec3; target: Vec3 }, opts: { home?: boolean } = {}): this {
+    this.camera.position.set(...view.position);
+    this.controls.target.set(...view.target);
+    this.controls.update();
+    if (opts.home) this.home = { position: this.camera.position.clone(), target: this.controls.target.clone() };
+    this.shadowsDirty = true;
+    this.invalidate();
+    return this;
+  }
+
   /** Fly back to the starting view (instant with Reduce Motion). Also: double-click or R. */
   resetCamera(): void {
     const from = { p: this.camera.position.clone(), t: this.controls.target.clone() };

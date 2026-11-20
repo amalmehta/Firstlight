@@ -1,12 +1,11 @@
 import {
   BufferAttribute,
-  Color,
+  BufferGeometry,
   DataTexture,
   FloatType,
   LinearFilter,
   Mesh,
   MeshStandardMaterial,
-  PlaneGeometry,
   RedFormat,
   HalfFloatType,
   ShaderMaterial,
@@ -19,32 +18,9 @@ import {
 } from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { Noise2D } from './noise';
+import { baseHeight, buildTerrainData, type TerrainData, type TerrainOptions } from './build';
 
-export interface TerrainOptions {
-  /** Side length, metres. Default 20 000 (a 20 km valley). */
-  size?: number;
-  /** Grid resolution per side. Default 512 (39 m spacing at 20 km). */
-  segments?: number;
-  /** Peak relief above the valley floor, metres. Default 1900. */
-  height?: number;
-  /** Altitude of the snow line, metres above the valley floor. Default 1300. */
-  snowLine?: number;
-  seed?: number;
-}
-
-// Linear albedos (estimates within published ranges, e.g. the ASTER/ECOSTRESS spectral
-// library: meadow grass ~0.1-0.2, conifer canopy ~0.03-0.08, granite/gneiss ~0.1-0.3,
-// old snow ~0.6-0.9). Labelled estimates, not measured values.
-const GRASS = new Color(0.075, 0.115, 0.035);
-const DRY = new Color(0.16, 0.15, 0.085);
-const FOREST = new Color(0.022, 0.038, 0.018);
-const ROCK = new Color(0.13, 0.122, 0.112);
-const SNOW = new Color(0.78, 0.8, 0.84);
-
-const smooth = (a: number, b: number, x: number) => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
+export type { TerrainOptions } from './build';
 
 /**
  * Per-pixel detail. Vertex colours give the 50 m pattern; this adds what is smaller than
@@ -209,11 +185,13 @@ float sunVisibility(vec3 p) { return texture(uSunVisTex, gridUv(p.xz)).r; }
  * snow line on slopes gentle enough to hold it). Albedos are within measured ranges:
  * grass ~0.1-0.25, granite ~0.2-0.3, old snow ~0.8 (labelled estimates, not measured here).
  */
-export class Terrain extends Mesh<PlaneGeometry, MeshStandardMaterial> {
+export class Terrain extends Mesh<BufferGeometry, MeshStandardMaterial> {
   readonly size: number;
   /** Uniforms for the terrain shader; the stage keeps uSunDirWorld in step with the sun. */
   readonly terrainUniforms: Record<string, { value: unknown }>;
   private noise: Noise2D;
+  private grid: Float32Array;
+  private segments: number;
   private sunVisTarget: WebGLRenderTarget;
   private sunVisQuad: FullScreenQuad;
   private sunVisDirty = true;
@@ -222,55 +200,57 @@ export class Terrain extends Mesh<PlaneGeometry, MeshStandardMaterial> {
   private skyOccBaked = false;
   private relief: number;
 
-  constructor(opts: TerrainOptions = {}) {
-    const size = opts.size ?? 20000;
-    const segments = opts.segments ?? 512;
-    const geo = new PlaneGeometry(size, size, segments, segments);
-    geo.rotateX(-Math.PI / 2);
+  /**
+   * Build a terrain without blocking the page: the heights, erosion and colours are computed in
+   * a Web Worker (a few seconds of work), then wrapped in a mesh here. Falls back to building on
+   * the main thread where workers aren't available.
+   */
+  static load(opts: TerrainOptions = {}): Promise<Terrain> {
+    if (typeof Worker === 'undefined') return Promise.resolve(new Terrain(opts));
+    return new Promise((resolve) => {
+      let worker: Worker;
+      try {
+        worker = new Worker(new URL('./terrainWorker.ts', import.meta.url), { type: 'module' });
+      } catch {
+        resolve(new Terrain(opts));
+        return;
+      }
+      worker.onmessage = (e: MessageEvent<TerrainData>) => {
+        worker.terminate();
+        resolve(new Terrain(opts, e.data));
+      };
+      worker.onerror = () => {
+        worker.terminate();
+        resolve(new Terrain(opts)); // same result, just on this thread
+      };
+      worker.postMessage(opts);
+    });
+  }
+
+  /** Builds synchronously (blocks for a few seconds at the default size); prefer Terrain.load. */
+  constructor(opts: TerrainOptions = {}, data?: TerrainData) {
+    const d = data ?? buildTerrainData(opts);
+    const geo = new BufferGeometry();
+    geo.setAttribute('position', new BufferAttribute(d.positions, 3));
+    geo.setAttribute('normal', new BufferAttribute(d.normals, 3));
+    geo.setAttribute('color', new BufferAttribute(d.colors, 3));
+    geo.setIndex(new BufferAttribute(d.index, 1));
+    geo.computeBoundingSphere();
     super(geo, new MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 }));
     this.name = 'Terrain';
+    const size = d.size;
+    const segments = d.segments;
     this.size = size;
+    this.segments = segments;
     this.relief = opts.height ?? 1900;
     this.noise = new Noise2D(opts.seed ?? 7);
-
-    const pos = geo.attributes.position as BufferAttribute;
-    for (let i = 0; i < pos.count; i++) {
-      pos.setY(i, this.heightAt(pos.getX(i), pos.getZ(i)));
-    }
-    geo.computeVertexNormals();
-    const normals = geo.attributes.normal as BufferAttribute;
-    const colors = new Float32Array(pos.count * 3);
-    const snowLine = opts.snowLine ?? 1300;
-    const c = new Color();
-    for (let i = 0; i < pos.count; i++) {
-      const h = pos.getY(i);
-      const up = normals.getY(i);
-      const x = pos.getX(i);
-      const z = pos.getZ(i);
-      const jitter = this.noise.fbm(x / 180, z / 180, 3); // breaks up hard bands
-      c.copy(GRASS).lerp(DRY, smooth(0.0, 0.35, jitter + h / 2400));
-      // Conifer belt: from the valley floor to the tree line (~700 m up), on slopes up to ~40°.
-      const trees = smooth(30, 120, h + jitter * 200) * smooth(760, 600, h + jitter * 220) *
-        smooth(0.72, 0.8, up) * smooth(-0.05, 0.12, this.noise.fbm(x / 700, z / 700, 3));
-      c.lerp(FOREST, trees);
-      c.lerp(ROCK, smooth(0.84, 0.7, up + jitter * 0.08));
-      const snow = smooth(snowLine - 100, snowLine + 200, h + jitter * 300) * smooth(0.66, 0.82, up);
-      c.lerp(SNOW, snow);
-      colors.set([c.r, c.g, c.b], i * 3);
-    }
-    geo.setAttribute('color', new BufferAttribute(colors, 3));
-    // Height grid as a texture for the sun-visibility march.
     const n = segments + 1;
-    const heights = new Float32Array(n * n);
-    let maxH = -Infinity;
-    for (let i = 0; i < pos.count; i++) {
-      const ix = Math.round((pos.getX(i) / size + 0.5) * segments);
-      const iz = Math.round((pos.getZ(i) / size + 0.5) * segments);
-      const y = pos.getY(i);
-      heights[iz * n + ix] = y;
-      if (y > maxH) maxH = y;
-    }
-    const heightTex = new DataTexture(heights, n, n, RedFormat, FloatType);
+    const grid = d.grid;
+    this.grid = grid;
+
+    // Height grid as a texture for the sun-visibility and sky-occlusion bakes.
+    const maxH = d.maxHeight;
+    const heightTex = new DataTexture(grid, n, n, RedFormat, FloatType);
     heightTex.minFilter = heightTex.magFilter = LinearFilter; // needs OES_texture_float_linear
     heightTex.needsUpdate = true;
     this.sunVisTarget = new WebGLRenderTarget(n, n, {
@@ -406,17 +386,28 @@ export class Terrain extends Mesh<PlaneGeometry, MeshStandardMaterial> {
     this.skyOccQuad.dispose();
   }
 
-  /** Ground height (metres) at scene position x, z. Use it to place objects on the ground. */
+  /**
+   * Ground height (metres) at scene position x, z: the rendered surface, interpolated from the
+   * height grid (bilinear, which matches the mesh to within a triangle's flatness). Use it to
+   * place objects on the ground.
+   */
   heightAt(x: number, z: number): number {
-    const half = this.size / 2;
-    const n = this.noise;
-    // Domain warp: bend the coordinates by a low-frequency noise so ridges meander.
-    const wx = x + 900 * n.fbm(x / 5000 + 11, z / 5000, 3);
-    const wz = z + 900 * n.fbm(x / 5000, z / 5000 + 23, 3);
-    const ridges = n.ridged(wx / 3400, wz / 3400, 8);
-    const d = Math.hypot(x / half, (z / half) * 0.62);
-    const mask = smooth(0.07, 0.62, d + 0.12 * n.fbm(x / 2500, z / 2500, 2));
-    const floor = 35 * n.fbm(x / 900, z / 900, 4);
-    return floor + this.relief * mask * (0.25 + 0.75 * ridges) * (0.75 + 0.5 * mask);
+    const n = this.segments + 1;
+    const fx = Math.min(Math.max((x / this.size + 0.5) * this.segments, 0), this.segments);
+    const fz = Math.min(Math.max((z / this.size + 0.5) * this.segments, 0), this.segments);
+    const x0 = Math.min(Math.floor(fx), this.segments - 1);
+    const z0 = Math.min(Math.floor(fz), this.segments - 1);
+    const tx = fx - x0;
+    const tz = fz - z0;
+    const g = this.grid;
+    const a = g[z0 * n + x0] * (1 - tx) + g[z0 * n + x0 + 1] * tx;
+    const b = g[(z0 + 1) * n + x0] * (1 - tx) + g[(z0 + 1) * n + x0 + 1] * tx;
+    return a * (1 - tz) + b * tz;
   }
+
+  /** The un-eroded procedural height (continuous noise), metres. */
+  baseHeightAt(x: number, z: number): number {
+    return baseHeight(this.noise, this.size, this.relief, x, z);
+  }
+
 }

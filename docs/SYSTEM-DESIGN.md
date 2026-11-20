@@ -96,6 +96,15 @@ losing them is harmless.
   1536×1152. The 32×32×32 volume (2 km per slice on a square-root curve, 64 km
   reach) costs about 2 ms and looks the same by eye. Trade-off: transmittance
   is stored as a grey average (alpha), as in the paper.
+- **Erosion filter and off-thread terrain.** Heights are built on a 513² grid, then carved by
+  an independent implementation of the stripe-based erosion filter Johansen describes (2026,
+  after Clay John): 3 octaves of jittered-cell cosine gullies aligned across the local slope,
+  faded to an altitude target on flat ground, masked down the octaves. No code was copied
+  (its licence couldn't be confirmed). Defaults (900 m spacing, 40 m depth) were picked by
+  side-by-side comparison. Building the terrain costs ~2.7 s of CPU, so `Terrain.load()` runs
+  the pure `buildTerrainData()` in a Web Worker and transfers the typed arrays back; the sky
+  draws immediately. `heightAt` now samples the final grid bilinearly, so it matches the mesh.
+  Longest main-thread task at load fell from ~4 s to ~0.47 s (shader compilation remains).
 - **Terrain sky occlusion (sky-view factor).** Baked once per terrain (8.2 ms GPU, 513²): per
   vertex, the horizon in 16 azimuths out to 8 km, then cosine-weighted sky irradiance above it
   divided by the same with the horizon at 0° (Dozier & Frew's irradiance definition, made
@@ -203,6 +212,10 @@ numeric sliders, clamped to their ranges.
 - Aerial transmittance is grey (one channel), as in the paper.
 - Terrain is a single 20 km tile with no LOD.
 - No clouds; the sky is always clear.
+- Erosion is aesthetic, not hydrology: drainage lines can stop part-way down a slope, and
+  at the 39 m grid some foothills form small pyramids rather than ridges.
+- First-render shader compilation still blocks the main thread for ~0.4 s; three's
+  `compileAsync` could hide it.
 - Terrain sky occlusion works at grid resolution (39 m) and doesn't see sub-grid relief; the
   terrain-bounce share (35%) is a constant, not a solve.
 - GPU-timer frame costs vary about ±1.5 ms between runs in the app's hidden browser pane

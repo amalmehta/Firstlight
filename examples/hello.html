@@ -9,12 +9,10 @@
   import * as THREE from 'three';
   import { createStage, Terrain } from '../src/index.ts';
 
-  const terrain = new Terrain({ seed: 7 });
+  const stage = createStage(document.body, { sun: { elevation: 22, azimuth: 290 } }); // sky draws now
+  const terrain = await Terrain.load({ seed: 7 }); // built off the main thread
   const ground = terrain.heightAt(0, 0);
-  const stage = createStage(document.body, {
-    sun: { elevation: 22, azimuth: 290 },
-    camera: { position: [-30, ground + 8, 60], target: [0, ground + 5, 0] },
-  });
+  stage.setView({ position: [-30, ground + 8, 60], target: [0, ground + 5, 0] }, { home: true });
 
   const steel = new THREE.MeshStandardMaterial({ color: 0xd8d4cc, metalness: 1, roughness: 0.22 });
   const sphere = new THREE.Mesh(new THREE.SphereGeometry(5, 96, 48), steel);

@@ -12,7 +12,7 @@ npm run dev
 
 Then open:
 - http://localhost:5173/ for the demo (an alpine valley with sun controls)
-- http://localhost:5173/examples/hello.html for the smallest complete scene (15 lines)
+- http://localhost:5173/examples/hello.html for the smallest complete scene (13 lines)
 - http://localhost:5173/examples/selfcheck.html for the GPU checks against the CPU reference and published values
 
 ```bash
@@ -52,7 +52,9 @@ import { createStage, Terrain } from '../Firstlight/src/index.ts';
 | `stage.resetCamera()` | Also bound to double-click and R. |
 | `stage.snapshot()` | PNG `Blob` of the current frame. |
 | `stage.benchmark(3)` | Orbits for 3 s and reports median and p95 frame intervals. Needs a visible tab. |
-| `new Terrain({ size, segments, height, snowLine, seed })` | Procedural valley; `terrain.heightAt(x, z)` places things on the ground. |
+| `await Terrain.load({ size, segments, height, snowLine, seed, erosion })` | Procedural eroded valley, built in a Web Worker; `terrain.heightAt(x, z)` places things on the ground. `new Terrain(opts)` builds synchronously (blocks ~3 s at the default size). |
+| `erosion` option | `false` to turn off, or `{ spacing, depth, octaves, fullSlope, minSlope, seed }`. |
+| `stage.setView({ position, target }, { home })` | Move the camera; with `home: true`, also where Reset returns. |
 | `new Atmosphere(params)` / `EARTH` | The Hillaire 2020 model; pass `atmosphere: { mieScattering: 0.02 }` to `createStage` for a hazy day. |
 | `Atmosphere.glsl` | GLSL with `skyLuminance()` and `integrateScattering()` for your own shaders. |
 

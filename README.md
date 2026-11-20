@@ -13,11 +13,10 @@ the ambient light and the distance haze always agree.
 ```js
 import { createStage, Terrain } from 'firstlight';
 
-const terrain = new Terrain({ seed: 7 });
-const stage = createStage(document.body, {
-  sun: { elevation: 22, azimuth: 290 },
-  camera: { position: [-30, terrain.heightAt(-30, 60) + 8, 60], target: [0, terrain.heightAt(0, 0) + 5, 0] },
-});
+const stage = createStage(document.body, { sun: { elevation: 22, azimuth: 290 } }); // sky draws now
+const terrain = await Terrain.load({ seed: 7 }); // eroded valley, built in a Web Worker
+const y = terrain.heightAt(0, 0);
+stage.setView({ position: [-30, y + 8, 60], target: [0, y + 5, 0] }, { home: true });
 stage.add(terrain, myMesh); // any three.js object; it is lit, shadowed and hazed like the rest
 ```
 

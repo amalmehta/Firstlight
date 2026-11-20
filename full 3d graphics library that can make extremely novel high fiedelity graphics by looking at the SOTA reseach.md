@@ -560,6 +560,7 @@ CHANGELOG:
 - 2026-11-19 — terrain-shadowed haze in the aerial volume; stage.settle() for the async meter
 - 2026-11-19 — GTAO ambient occlusion on indirect light only (roadmap item 3)
 - 2026-11-19 — terrain sky-view factor (sky occlusion) baked from the heightfield
+- 2026-11-19 — erosion filter (roadmap item 2); terrain built in a Web Worker via Terrain.load
 - 2026-09-15 — added meta-instruction: built-out applications include a small feedback tab
 - 2026-09-15 — added meta-instruction: no "Claude" attribution in commits, PRs, or branches
 - 2026-09-16 — added meta-instruction: always include a README when adding to GitHub

@@ -32,6 +32,22 @@ varying vec2 vNdc;
 void main() {
   vec3 dir = viewDir(vNdc * 0.5 + 0.5);
   vec3 col = skyLuminance(uCamAtm, dir);
+  float tGround = raySphere(uCamAtm, dir, uBottomRadius);
+  if (tGround >= 0.0) {
+    // Below the horizon where no geometry was drawn (before terrain loads, or past its edge):
+    // lit Lambertian ground seen through the air, as the environment map does, instead of the
+    // in-scattering alone (a dark void).
+    vec3 gUp = normalize(uCamAtm + dir * tGround);
+    float sunCos = dot(gUp, uSunDir);
+    vec3 skyDown = skyLuminance(gUp * (uBottomRadius + 0.002), gUp);
+    vec3 ground = uGroundAlbedo / PI *
+      (uSunIlluminance * getTransmittance(uBottomRadius, sunCos) * max(sunCos, 0.0) + skyDown * PI);
+    // Camera-to-ground transmittance via the reversed (upward) rays: T(ground→top) / T(cam→top).
+    float r = length(uCamAtm);
+    vec3 tView = getTransmittance(uBottomRadius, -dot(dir, gUp)) /
+      max(getTransmittance(r, -dot(dir, uCamAtm / r)), vec3(1e-6));
+    col += ground * clamp(tView, 0.0, 1.0);
+  }
   float c = dot(dir, uSunDir);
   if (c > uSunCosRadius - 1e-5 && raySphere(uCamAtm, dir, uBottomRadius) < 0.0) {
     // Radiance of the disk is illuminance / solid angle; limb darkening (Neckel & Labs 1994,

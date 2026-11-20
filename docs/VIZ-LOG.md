@@ -79,6 +79,24 @@ how it was checked, and what changed.
 - **Cost:** bake 8.2 ms once; per frame, zero within noise.
 - **Bug found:** a render target made with `.clone()` shares its texture source with the original, so the two bakes overwrote each other. Fixed with a separate target.
 
+## Alpine valley demo: erosion filter (2026-11-19)
+
+| Erosion off | Erosion on (900 m, 40 m, 3 octaves) |
+|---|---|
+| ![](images/erosion-off.jpg) | ![](images/erosion-on.jpg) |
+
+![Top-down shaded cone, eroded: gullies run radially downhill and branch](images/erosion-cone-topdown.png)
+
+- **What:** branching gullies carved along the slope.
+- **Checked:**
+  - **Tests:** deterministic; flat ground untouched; on a cone, carving varies 3.3× more across the slope than along it (gullies run downhill); mean |Laplacian| on the flank rises 10×.
+- **How it got here:**
+  - The first attempt (700 m, 55 m, 2×2 cells) made egg-carton mounds and a bumpy floor. A top-down debug render showed broken stripes.
+  - Fixes: back to 3×3 cells, a minimum slope below which nothing is carved, and wider, shallower gullies.
+  - Build time went 2.1 s → 4.7 s, then down to 2.7 s after removing per-call allocations, `exp`, `PlaneGeometry` and its normal pass.
+  - It then moved to a Web Worker: the longest main-thread task went from ~4 s to 0.47 s.
+- **Also fixed:** below the horizon, the sky background showed a navy void before terrain loaded. It now shows lit ground seen through the air.
+
 ## Hello example (examples/hello.html), 2026-11-19
 
 The same stage in 15 lines: terrain plus a steel sphere. It exists to prove the "30 lines"
