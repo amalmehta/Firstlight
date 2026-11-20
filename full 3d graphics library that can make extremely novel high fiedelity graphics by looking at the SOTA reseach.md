@@ -541,7 +541,7 @@ Decided without asking:
 - Feedback tab: a link to a prefilled GitHub issue, so no data is collected.
 - Mockups skipped: tone and scene were chosen. A rendered first version serves as the sketch.
 - Mid-build changes, driven by measurements: aerial perspective moved to the paper's froxel volume, since per-pixel marching took ~8.5 ms. Terrain shadows now come from a baked heightfield sun-visibility texture, because the shadow-map box left a hard edge at golden hour. Transmittance uses 128 steps, because the paper's 40 miss zenith depth by 1.7%.
-- License: not chosen yet (package.json says UNLICENSED). Needs your call before the public push.
+- License: MIT (owner, 2026-11-19). Copyright line uses the GitHub handle amalmehta.
 - GitHub owner assumed to be amalmehta (from GraphicsLibrary's Pages URL), for the feedback link.
 
 Three stories (the approach for this project):
@@ -554,6 +554,7 @@ CHANGELOG:
 
 - 2026-11-19 — created
 - 2026-11-19 — answered the design questions; filled in DELIVERABLES, DEFINITIONS AND DEFERRED, and assumptions; built Firstlight v1 (core + Hillaire sky)
+- 2026-11-19 — MIT license; published to github.com/amalmehta/Firstlight with a Pages demo
 - 2026-09-15 — added meta-instruction: built-out applications include a small feedback tab
 - 2026-09-15 — added meta-instruction: no "Claude" attribution in commits, PRs, or branches
 - 2026-09-16 — added meta-instruction: always include a README when adding to GitHub

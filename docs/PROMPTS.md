@@ -15,3 +15,6 @@
 
 4. Done criteria accepted as written.
    → Built v1: atmosphere (CPU reference + GPU LUTs), stage, terrain, demo, hello, self-check, docs.
+
+5. "Push, MIT license"
+   → Added an MIT LICENSE and a GitHub Actions workflow (typecheck, test, build, deploy to Pages). Created the public repo amalmehta/Firstlight and pushed main.

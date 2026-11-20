@@ -3,6 +3,8 @@
 Physically based sky, sun and haze for three.js. One atmosphere model lights the whole
 scene, so the sky, the sun's colour, the ambient light and the distance haze always agree.
 
+**[Open the live demo →](https://amalmehta.github.io/Firstlight/)**
+
 ![An alpine valley in afternoon light: a steel sphere and a stone pillar on a meadow, ridges fading blue with distance](docs/images/demo-light.jpg)
 
 ![The same valley at a 6° sun, in dark mode: the floor in the ridges' shadow, alpenglow on the peaks](docs/images/demo-dark-golden.jpg)
@@ -26,4 +28,4 @@ stage.add(terrain, myMesh); // any three.js object; it is lit, shadowed and haze
 
 **[Instructions](docs/INSTRUCTIONS.md)** · [System design](docs/SYSTEM-DESIGN.md) ·
 [Concepts (CS184 → papers)](docs/CONCEPTS.md) · [Viz log](docs/VIZ-LOG.md) ·
-[File structure](docs/FILE-STRUCTURE.md) · [Prompt log](docs/PROMPTS.md)
+[File structure](docs/FILE-STRUCTURE.md) · [Prompt log](docs/PROMPTS.md) · MIT license
