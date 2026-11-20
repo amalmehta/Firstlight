@@ -34,6 +34,14 @@ import { Atmosphere } from '../atmosphere/Atmosphere';
 import type { AtmosphereParams } from '../atmosphere/params';
 import { sunDirection, sunTransmittance } from '../atmosphere/reference';
 import { FULLSCREEN_VERT } from '../atmosphere/glsl';
+import {
+  SOLAR_ILLUMINANCE_LUX,
+  describeEv,
+  ev100FromCamera,
+  ev100FromIlluminance,
+  exposureScale,
+  type CameraSettings,
+} from '../camera/photometry';
 import { AERIAL_FRAG, AERIAL_SLICES, COMPOSITE_FRAG, ENV_FRAG, ENV_VERT, SKY_FRAG, SKY_VERT } from './shaders';
 
 type Vec3 = [number, number, number];
@@ -41,10 +49,16 @@ type Vec3 = [number, number, number];
 export interface StageOptions {
   /** Sun position: degrees above the horizon, and degrees clockwise from north (-z). */
   sun?: { elevation?: number; azimuth?: number };
-  /** Exposure multiplier before tone mapping. Default 6 (chosen by eye for daylight with AgX; an estimate, not a metered value). */
-  exposure?: number;
-  /** Solar illuminance in relative units (not lux). Default 1. */
-  sunIntensity?: number;
+  /**
+   * How the camera is exposed. 'auto' (default) meters like an incident light meter at the
+   * camera: direct sun plus sky light on a flat, upward-facing sensor. A number is a fixed
+   * EV100; camera settings ({ aperture, shutter, iso }) are converted to EV100.
+   */
+  exposure?: Exposure;
+  /** Stops brighter (+) or darker (-) than the exposure gives. Default 0. */
+  exposureCompensation?: number;
+  /** Sun illuminance above the atmosphere, lux. Default 133 800 (Earth, yearly mean). */
+  sunIlluminance?: number;
   camera?: { position?: Vec3; target?: Vec3; fov?: number };
   /** Cap on devicePixelRatio, to keep the frame budget on Retina screens. Default 1.5. */
   maxPixelRatio?: number;
@@ -59,6 +73,28 @@ export interface StageOptions {
 }
 
 export class FirstlightUnsupportedError extends Error {}
+
+export type Exposure = 'auto' | number | CameraSettings;
+
+/** What the camera is doing right now, for display. */
+export interface ExposureState {
+  mode: 'auto' | 'manual';
+  /** EV100 actually used (after compensation). */
+  ev100: number;
+  /** Horizontal illuminance at the camera (sun + sky), lux. */
+  illuminanceLux: number;
+  /** Of which, from the sky, lux. */
+  skyLux: number;
+  /** Equivalent camera settings, e.g. "f/8 · 1/500 s · ISO 100". */
+  settings: string;
+}
+
+/**
+ * The tone curve (AgX) is designed for mid-grey at 0.18; a metered 18% card lands at
+ * about 0.12 of sensor saturation (photometry.ts tests). This display gain lines the two
+ * up (0.18 / 0.119 ≈ 1.5). It is a display calibration, not a physical quantity.
+ */
+const DISPLAY_GAIN = 1.5;
 
 const SUN_ANGULAR_RADIUS = (0.2667 * Math.PI) / 180; // mean, radians
 const ENV_THROTTLE_MS = 120;
@@ -116,7 +152,18 @@ export class Stage {
   private resizeObs: ResizeObserver;
   private reduceMotion: MediaQueryList;
   private sunAngles = { elevation: 25, azimuth: 200 };
-  private sunIntensity: number;
+  private sunLux: number;
+  private exposureMode: Exposure;
+  private compensation: number;
+  private exposureState: ExposureState = { mode: 'auto', ev100: 0, illuminanceLux: 0, skyLux: 0, settings: '' };
+  private meterKey = '';
+  private preExposure = 1;
+  private envPreExposure = 1;
+  private renderListeners: (() => void)[] = [];
+  /** Sky irradiance per unit sun illuminance, from the last meter reading. */
+  private skyTransfer = -1;
+  private skyMeterBusy = false;
+  private skyMeterKey = '';
   private invViewProj = new Matrix4();
   private camAtm = new Vector3();
   private disposed = false;
@@ -141,7 +188,9 @@ export class Stage {
     this.renderer = new WebGLRenderer({ canvas: this.canvas, context: gl, antialias: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, opts.maxPixelRatio ?? 1.5));
     this.renderer.toneMapping = opts.toneMapping === 'aces' ? ACESFilmicToneMapping : AgXToneMapping;
-    this.renderer.toneMappingExposure = opts.exposure ?? 6;
+    this.renderer.toneMappingExposure = DISPLAY_GAIN;
+    this.exposureMode = opts.exposure ?? 'auto';
+    this.compensation = opts.exposureCompensation ?? 0;
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFShadowMap;
@@ -153,7 +202,7 @@ export class Stage {
     this.camera = new PerspectiveCamera(opts.camera?.fov ?? 40, w / h, 0.5, 60000);
     this.camera.position.set(...(opts.camera?.position ?? [0, 30, 120]));
     this.atmosphere = new Atmosphere(opts.atmosphere);
-    this.sunIntensity = opts.sunIntensity ?? 1;
+    this.sunLux = opts.sunIlluminance ?? SOLAR_ILLUMINANCE_LUX;
 
     // HDR target: half-float colour, 4x MSAA, float depth (read back for aerial perspective).
     this.hdr = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
@@ -219,7 +268,7 @@ export class Stage {
     });
     this.composite = new FullScreenQuad(this.compositeMat);
 
-    this.sun = new DirectionalLight(0xffffff, this.sunIntensity);
+    this.sun = new DirectionalLight(0xffffff, 1);
     this.sun.name = 'Sun';
     this.sun.castShadow = true;
     const ext = opts.shadowExtent ?? 400;
@@ -298,10 +347,31 @@ export class Stage {
     return { ...this.sunAngles };
   }
 
-  setExposure(exposure: number): this {
-    this.renderer.toneMappingExposure = exposure;
+  /** 'auto' (incident meter), a fixed EV100, or { aperture, shutter, iso }. */
+  setExposure(exposure: Exposure): this {
+    this.exposureMode = exposure;
+    this.meterKey = '';
     this.invalidate();
     return this;
+  }
+
+  /** Stops brighter (+) or darker (-) than the exposure mode gives. */
+  setExposureCompensation(stops: number): this {
+    this.compensation = stops;
+    this.meterKey = '';
+    this.invalidate();
+    return this;
+  }
+
+  /** Run fn after every drawn frame (e.g. to update a readout). Returns an unsubscribe function. */
+  onRender(fn: () => void): () => void {
+    this.renderListeners.push(fn);
+    return () => { this.renderListeners = this.renderListeners.filter((f) => f !== fn); };
+  }
+
+  /** The exposure used for the last frame: EV100, metered lux, and camera settings. */
+  getExposure(): ExposureState {
+    return { ...this.exposureState };
   }
 
   /** Cap the device pixel ratio (1 = fast, 2 = full Retina). */
@@ -318,8 +388,10 @@ export class Stage {
     return this;
   }
 
-  setSunIntensity(intensity: number): this {
-    this.sunIntensity = intensity;
+  /** Sun illuminance above the atmosphere, lux (Earth: 133 800). */
+  setSunIlluminance(lux: number): this {
+    this.sunLux = lux;
+    this.meterKey = '';
     this.envDirty = true;
     this.invalidate();
     return this;
@@ -445,6 +517,61 @@ export class Stage {
     this.envRT?.dispose();
     this.envRT = next;
     this.scene.environment = next.texture as Texture;
+    this.envPreExposure = this.preExposure;
+  }
+
+  /**
+   * Work out this frame's exposure. All light values are multiplied by it before they reach
+   * the half-float buffers ("pre-exposure"): raw daylight in cd/m² ranges up to ~10⁹ for the
+   * sun disk, far past half-float's 65504. Returns true when the exposure changed.
+   */
+  private updateExposure(T: [number, number, number], R: number): boolean {
+    const el = this.sunAngles.elevation;
+    const altKm = this.camAtm.y - R;
+    const mode = this.exposureMode;
+    const key = `${el},${this.sunAngles.azimuth},${altKm.toFixed(2)},${this.sunLux},${this.compensation},${JSON.stringify(mode)}`;
+    if (key === this.meterKey) return false;
+    this.meterKey = key;
+    // Incident meter: direct sun on a horizontal sensor + sky irradiance (GPU, per unit sun).
+    const yT = 0.2126 * T[0] + 0.7152 * T[1] + 0.0722 * T[2];
+    const directLux = this.sunLux * yT * Math.max(Math.sin((el * Math.PI) / 180), 0);
+    // Sky light: the first reading waits for the GPU; later ones are asynchronous so dragging
+    // the sun never stalls a frame (the meter then trails by a frame or two).
+    const skyKey = `${el},${this.sunAngles.azimuth},${altKm.toFixed(2)}`;
+    if (this.skyTransfer < 0) {
+      this.skyTransfer = this.atmosphere.measureSkyIrradiance(this.renderer);
+      this.skyMeterKey = skyKey;
+    } else if (skyKey !== this.skyMeterKey && !this.skyMeterBusy) {
+      this.skyMeterBusy = true;
+      this.skyMeterKey = skyKey;
+      void this.atmosphere.measureSkyIrradianceAsync(this.renderer).then((v) => {
+        this.skyMeterBusy = false;
+        if (Math.abs(v - this.skyTransfer) > 1e-4 * Math.max(v, 1e-6)) {
+          this.skyTransfer = v;
+          this.meterKey = '';
+        }
+        // Re-check: the sun may have moved again while this reading was in flight.
+        this.meterKey = '';
+        this.invalidate();
+      });
+    }
+    const skyLux = this.sunLux * this.skyTransfer;
+    const lux = directLux + skyLux;
+    let ev: number;
+    if (mode === 'auto') ev = ev100FromIlluminance(lux);
+    else if (typeof mode === 'number') ev = mode;
+    else ev = ev100FromCamera(mode);
+    ev -= this.compensation;
+    const prev = this.preExposure;
+    this.preExposure = exposureScale(ev);
+    this.exposureState = {
+      mode: mode === 'auto' ? 'auto' : 'manual',
+      ev100: ev,
+      illuminanceLux: lux,
+      skyLux,
+      settings: describeEv(ev),
+    };
+    return this.preExposure !== prev;
   }
 
   /** Draw one frame now. Normally you call invalidate() instead. */
@@ -461,13 +588,18 @@ export class Stage {
     this.camAtm.set(cam.position.x * KM, R + Math.max(cam.position.y * KM, 0.001), cam.position.z * KM);
 
     const u = this.atmosphere.uniforms;
-    u.uSunIlluminance.value.setScalar(this.sunIntensity);
+    u.uSunIlluminance.value.setScalar(this.sunLux * this.preExposure);
     this.atmosphere.update(this.renderer, this.camAtm.y);
 
     // Sun light: transmittance from the sun to the camera's altitude (CPU reference).
     const T = sunTransmittance(this.atmosphere.params, this.sunAngles.elevation, this.camAtm.y - R, 64);
+    if (this.updateExposure(T, R)) {
+      // Exposure moved: redraw the sky-view LUT at the new scale.
+      u.uSunIlluminance.value.setScalar(this.sunLux * this.preExposure);
+      this.atmosphere.update(this.renderer, this.camAtm.y);
+    }
     this.sun.color.setRGB(T[0], T[1], T[2]);
-    this.sun.intensity = this.sunIntensity;
+    this.sun.intensity = this.sunLux * this.preExposure;
     this.sun.visible = this.sunAngles.elevation > -1;
     const sd = u.uSunDir.value as Vector3;
     this.sun.target.position.copy(this.controls.target);
@@ -485,6 +617,9 @@ export class Stage {
     }
 
     this.updateEnvironment(t0);
+    // The environment cube may be up to one throttle window old; rescale it to the current
+    // exposure so ambient light never lags the camera.
+    this.scene.environmentIntensity = this.preExposure / this.envPreExposure;
 
     for (let z = 0; z < AERIAL_SLICES; z++) {
       this.aerialMat.uniforms.uSlice.value = z;
@@ -497,6 +632,7 @@ export class Stage {
     this.renderer.setRenderTarget(null);
     this.composite.render(this.renderer);
     this.lastRenderMs = performance.now() - t0;
+    for (const f of this.renderListeners) f();
   }
 
   dispose(): void {

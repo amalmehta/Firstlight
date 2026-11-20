@@ -1,7 +1,8 @@
 # Firstlight
 
-Physically based sky, sun and haze for three.js. One atmosphere model lights the whole
-scene, so the sky, the sun's colour, the ambient light and the distance haze always agree.
+Physically based sky, sun and haze for three.js, in real light units (lux, cd/m²) with a
+physical camera. One atmosphere model lights the whole scene, so the sky, the sun's colour,
+the ambient light and the distance haze always agree.
 
 **[Open the live demo →](https://amalmehta.com/Firstlight/)**
 
@@ -24,7 +25,8 @@ stage.add(terrain, myMesh); // any three.js object; it is lit, shadowed and haze
 |---|---|
 | GPU transmittance LUT vs CPU reference | 0.14% max error (threshold 1%) |
 | Sea-level Rayleigh depth vs Bucholtz 1995 | +9% to +13% (the standard coefficients run high; labeled) |
-| Orbit frame cost, 1920×1200, Apple GPU in the app's browser | ≈13.7 ms net (budget 16.7 ms) |
+| Sun at 60°: direct / sky light on the ground, auto EV | 99.5 klx / 9.1 klx, EV 15.4 (Sunny 16 ≈ 15) |
+| Orbit frame cost, 1920×1200, Apple GPU in the app's browser | ≈14.6 ms net (budget 16.7 ms) |
 
 **[Instructions](docs/INSTRUCTIONS.md)** · [System design](docs/SYSTEM-DESIGN.md) ·
 [Concepts (CS184 → papers)](docs/CONCEPTS.md) · [Research: what next](docs/RESEARCH.md) · [Viz log](docs/VIZ-LOG.md) ·

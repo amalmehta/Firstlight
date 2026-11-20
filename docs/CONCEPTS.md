@@ -17,7 +17,8 @@ carry the details.
 | Radiometry | Radiance, irradiance, and how light is measured. | `params.ts`, `reference.ts` | Hillaire 2020 participating medium: Rayleigh, Mie, ozone |
 | Monte Carlo Integration | Estimate an integral by averaging samples. | Ray-marching optical depth and in-scattering (deterministic quadrature) | Hillaire's 64-direction multiple-scattering estimate |
 | Global Illumination & Path Tracing | Light bounces; the rendering equation (Kajiya 1986). | Multiple-scattering LUT: infinite bounces as a geometric series 1/(1 − f) | Hillaire 2020 §5.5 |
-| Color and Perception | Spectra → RGB; the eye compresses huge brightness ranges. | Exposure + AgX tone mapping + sRGB output | AgX (Sobotka), via Blender → Filament → three |
+| Radiometry → photometry | Lux measures light falling on a surface; cd/m² measures light leaving it towards the eye. A camera's EV picks which luminance fills the sensor. | `camera/photometry.ts`, metering in `Stage` | Lagarde & de Rousiers 2014 physical camera; ISO 2720 incident meter |
+| Color and Perception | Spectra → RGB; the eye compresses huge brightness ranges. | Pre-exposure + AgX tone mapping + sRGB output | AgX (Sobotka), via Blender → Filament → three |
 | Animation | Motion over time. | Eased camera reset; render-on-demand loop | — |
 
 ## The equations that matter
@@ -44,6 +45,12 @@ blue and a low sun, seen through roughly 20 times more air, is orange.
 
 The demo's "How this works" panel shows the transmittance equation typeset (MathML), with
 symbols defined beneath.
+
+**Exposure value.** EV100 = log₂(N² / t · 100 / S), with N the f-number, t the shutter time
+(s) and S the ISO. A camera saturates at L = 1.2 · 2^EV100 cd/m², and an incident meter under
+illuminance E (lux) picks EV100 = log₂(E · 100 / 250). Worked example: noon sun on a grey card,
+E ≈ 100 000 lux, gives EV100 ≈ 15.3, about the photographer's "Sunny 16" (f/16, 1/125 s,
+ISO 100 → 14.97).
 
 ## Reusable principle
 

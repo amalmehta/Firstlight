@@ -1,5 +1,6 @@
 import {
   ClampToEdgeWrapping,
+  DataUtils,
   HalfFloatType,
   LinearFilter,
   RGBAFormat,
@@ -18,6 +19,7 @@ import {
   LUT_SIZES,
   MULTISCAT_FRAG,
   SKYVIEW_FRAG,
+  SKY_IRRADIANCE_FRAG,
   TRANSMITTANCE_FRAG,
 } from './glsl';
 
@@ -56,6 +58,9 @@ export class Atmosphere {
   private transmittanceMat: ShaderMaterial;
   private multiScatMat: ShaderMaterial;
   private skyViewMat: ShaderMaterial;
+  private irradianceMat: ShaderMaterial;
+  private irradianceTarget = lut(1, 1);
+  private irradianceBuf = new Uint16Array(4);
   private staticDirty = true;
 
   constructor(params: Partial<AtmosphereParams> = {}) {
@@ -92,6 +97,7 @@ export class Atmosphere {
     this.transmittanceMat = make(TRANSMITTANCE_FRAG);
     this.multiScatMat = make(MULTISCAT_FRAG);
     this.skyViewMat = make(SKYVIEW_FRAG, LOOKUPS);
+    this.irradianceMat = make(SKY_IRRADIANCE_FRAG, LOOKUPS);
   }
 
   /** Change atmosphere parameters (e.g. a thicker haze); LUTs rebuild on next update. */
@@ -134,6 +140,38 @@ export class Atmosphere {
     renderer.setRenderTarget(prev);
   }
 
+  /**
+   * Horizontal sky illuminance at the camera, per unit of sun illuminance (so multiply by the
+   * sun's lux). Uses the current sky-view LUT; call after update(). Reads one pixel back from
+   * the GPU, which waits for the GPU to finish: call it only when the sun or altitude changed.
+   * Luminance is taken as Rec. 709 Y of the RGB channels (an approximation: our channels are
+   * 680/550/440 nm samples, not sRGB primaries).
+   */
+  measureSkyIrradiance(renderer: WebGLRenderer): number {
+    this.drawIrradiance(renderer);
+    renderer.readRenderTargetPixels(this.irradianceTarget, 0, 0, 1, 1, this.irradianceBuf);
+    return this.decodeIrradiance();
+  }
+
+  /** As measureSkyIrradiance, but without stalling: the GPU result arrives a frame or so later. */
+  async measureSkyIrradianceAsync(renderer: WebGLRenderer): Promise<number> {
+    this.drawIrradiance(renderer);
+    const scale = (this.uniforms.uSunIlluminance.value as Vector3).y || 1;
+    await renderer.readRenderTargetPixelsAsync(this.irradianceTarget, 0, 0, 1, 1, this.irradianceBuf);
+    return this.decodeIrradiance(scale);
+  }
+
+  private drawIrradiance(renderer: WebGLRenderer): void {
+    const prev = renderer.getRenderTarget();
+    this.draw(renderer, this.irradianceMat, this.irradianceTarget);
+    renderer.setRenderTarget(prev);
+  }
+
+  private decodeIrradiance(scale = (this.uniforms.uSunIlluminance.value as Vector3).y || 1): number {
+    const [r, g, b] = [0, 1, 2].map((i) => DataUtils.fromHalfFloat(this.irradianceBuf[i]));
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / scale;
+  }
+
   private draw(renderer: WebGLRenderer, mat: ShaderMaterial, target: WebGLRenderTarget): void {
     this.quad.material = mat;
     renderer.setRenderTarget(target);
@@ -141,8 +179,8 @@ export class Atmosphere {
   }
 
   dispose(): void {
-    for (const t of [this.transmittance, this.multiScattering, this.skyView]) t.dispose();
-    for (const m of [this.transmittanceMat, this.multiScatMat, this.skyViewMat]) m.dispose();
+    for (const t of [this.transmittance, this.multiScattering, this.skyView, this.irradianceTarget]) t.dispose();
+    for (const m of [this.transmittanceMat, this.multiScatMat, this.skyViewMat, this.irradianceMat]) m.dispose();
     this.quad.dispose();
   }
 }

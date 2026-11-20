@@ -103,8 +103,18 @@ losing them is harmless.
   (a per-pixel march cost about 6 ms per frame). The same lookup is injected
   into every lit material the stage holds, so objects fall into mountain shadow
   with the ground. Objects still cast their own small shadows via the shadow map.
-- **Relative light units.** Solar illuminance is `intensity × (1,1,1)` and
-  exposure maps it to the display. Not lux; labeled as such.
+- **Photometric units and a physical camera.** The LUTs are transfer functions; the sun's
+  illuminance (133 800 lux above the atmosphere, Darula et al. 2005 as cited by Kittler &
+  Darula) turns them into cd/m². Exposure follows Lagarde & de Rousiers 2014
+  (L_sat = 1.2·2^EV100). Auto mode is an incident light meter at the camera (C = 250,
+  ISO 2720): direct sun on a horizontal sensor (CPU transmittance) plus sky irradiance
+  (a 128-sample GPU integral of the sky-view LUT, read back asynchronously). All light is
+  pre-exposed before it reaches half-float targets; the sun disk is clamped at 6·10⁴.
+  A display gain of 1.5 puts a metered 18% card at AgX's mid-grey; that constant is a
+  display calibration, not physics. The environment map is rescaled by
+  `environmentIntensity` so its throttled rebuild never lags the exposure.
+  Measured: at a 60° sun, direct 99.5 klx (Frostbite's reference ≈100 klx), sky 9.1 klx
+  (low end against Frostbite's generic ≈20 klx), EV 15.4 (Sunny 16 ≈ 15).
 - **Render on demand.** Static scenes cost nothing when idle. This is the
   battery story behind the portfolio-hero use.
 - **AgX tone mapping** (three built-in) over ACES: AgX desaturates bright
@@ -173,3 +183,10 @@ numeric sliders, clamped to their ranges.
 - Aerial transmittance is grey (one channel), as in the paper.
 - Terrain is a single 20 km tile with no LOD.
 - No clouds; the sky is always clear.
+- Aerial perspective ignores terrain shadows: air in a ridge's shadow still scatters
+  sunlight, so a shaded valley at low sun looks hazier than it should. Fix proposed
+  (shadowed in-scattering in the froxel pass), not built.
+- The auto meter assumes the camera stands in sunlight (it adds direct sun even when the
+  camera is in a ridge's shadow), like metering the sunlit side of a scene.
+- Sun-drag frames cost ≈17 ms net (GPU-synced upper bound, 1920×1200): the sky-view LUT,
+  sun-visibility bake, meter pass and throttled environment rebuild land together.

@@ -32,6 +32,13 @@ how it was checked, and what changed.
   6. **Shadow edge.** At golden hour, the shadow-map box left a hard edge on the floor. Terrain shadowing became a heightfield march, then a sun-visibility texture baked once per sun move. Every lit material samples that texture, so objects fall into mountain shadow with the ground.
   7. **Shadow map.** The sun's shadow map is cached while orbiting, since it only depends on the sun and the target.
 
+## Alpine valley demo: real light units (2026-11-19)
+
+- **Changed:** light in lux and cd/m², with a physical camera: an Auto incident meter, or Sunny 16 fixed. The slider is now exposure compensation in stops. A readout shows lux at the camera and the camera settings.
+- **Checked:** self-check rows for photometry at a 60° sun: direct 99.5 klx, sky 9.1 klx, EV 15.41; EV falls from 15.41 to 13.88 to 11.38 as the sun drops from 60° to 20° to 5°. Seven unit tests cover the formulas.
+- **Speed:** orbit ≈14.6 ms net; sun drag ≈17.0 ms net, after making the meter's GPU readback asynchronous (it was ≈20.9 ms synchronous).
+- **Found:** a shaded valley looks hazy at low sun because aerial perspective ignores terrain shadows. Logged as a proposal.
+
 ## Hello example (examples/hello.html), 2026-11-19
 
 The same stage in 15 lines: terrain plus a steel sphere. It exists to prove the "30 lines"

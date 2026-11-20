@@ -14,6 +14,8 @@ src/atmosphere/
   reference.ts             CPU reference: optical depth, transmittance, sun colour, LUT mapping
   glsl.ts                  GLSL: medium, LUT passes (transmittance, multi-scattering, sky-view), lookups
   Atmosphere.ts            Owns and updates the LUT render targets
+src/camera/
+  photometry.ts            Lux, cd/m², EV100, incident meter, exposure scale (with sources)
 src/stage/
   Stage.ts                 createStage: renderer, HDR target, camera, controls, sun, environment,
                            froxel aerial perspective, composite, on-demand loop, snapshot, benchmark
@@ -24,6 +26,7 @@ src/terrain/
                            baked sun visibility (also applied to your materials)
 
 tests/atmosphere.test.ts   Physics checks against Bucholtz 1995 and integration accuracy
+tests/photometry.test.ts Sunny 16, meter vs camera, grey-card exposure
 tests/terrain.test.ts      Determinism, ranges, mesh vs heightAt
 
 docs/                      README links: instructions, system design, concepts, viz log, prompts

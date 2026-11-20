@@ -21,3 +21,6 @@
 
 6. "*spend another 30 minutes doing deep deep research"
    → Four parallel literature passes (sky/clouds, GI/path tracing, splats, materials/terrain/WebGPU). Package and API claims were rechecked locally. Ranked roadmap in docs/RESEARCH.md; nothing built from it yet.
+
+7. "Yes, build item 1"
+   → Photometric units and a physical camera: lux and cd/m², EV100, an auto incident meter (asynchronous GPU sky readback), Sunny 16 mode, compensation slider, meter readout. Photometry tests and self-check rows. Found that terrain-shadowed in-scattering is missing; logged as a proposal.

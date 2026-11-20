@@ -54,7 +54,32 @@ const t60 = reference.sunTransmittance(EARTH, 60);
 rows.push({ name: 'Sun at 2°: red / blue transmittance > 2', result: (t2[0] / t2[2]).toFixed(2), pass: t2[0] / t2[2] > 2 });
 rows.push({ name: 'Sun at 60°: every channel > 0.7', result: t60.map((v) => v.toFixed(3)).join(', '), pass: t60.every((v) => v > 0.7) });
 
-// 4. No WebGL errors.
+// 4. Photometry at a 60° sun: direct and sky light on a horizontal surface, in lux.
+// Plausibility bands around Frostbite's reference values (Lagarde & de Rousiers 2014:
+// sun ≈ 100 klx, sky ≈ 20 klx), not a measurement of a specific day.
+stage.setSun({ elevation: 60, azimuth: 180 });
+stage.render();
+const ex = stage.getExposure();
+const direct = ex.illuminanceLux - ex.skyLux;
+rows.push({
+  name: 'Sun at 60°: direct light on the ground 80–120 klx; sky light 8–30 klx',
+  result: `direct ${(direct / 1000).toFixed(1)} klx, sky ${(ex.skyLux / 1000).toFixed(1)} klx, EV ${ex.ev100.toFixed(2)} (${ex.settings})`,
+  pass: direct > 80_000 && direct < 120_000 && ex.skyLux > 8_000 && ex.skyLux < 30_000,
+});
+// Auto exposure keeps a lit grey card near the same display value from noon to dusk.
+const lit: number[] = [];
+for (const el of [60, 20, 5]) {
+  stage.setSun({ elevation: el });
+  stage.render();
+  lit.push(stage.getExposure().ev100);
+}
+rows.push({
+  name: 'Auto exposure: EV falls as the light falls (sun 60° → 20° → 5°)',
+  result: lit.map((e) => e.toFixed(2)).join(' → '),
+  pass: lit[0] > lit[1] && lit[1] > lit[2],
+});
+
+// 5. No WebGL errors.
 const gl = stage.renderer.getContext();
 const err = gl.getError();
 rows.push({ name: 'WebGL error flag after rendering', result: err === 0 ? 'none' : `0x${err.toString(16)}`, pass: err === 0 });

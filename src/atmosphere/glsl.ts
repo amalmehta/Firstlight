@@ -294,3 +294,27 @@ void main() {
   gl_FragColor = vec4(L, 1.0);
 }
 `;
+
+/**
+ * Sky irradiance on a horizontal surface at the camera (what a flat light meter pointed up
+ * reads, minus the direct sun): E = integral of L cos(theta) over the upper hemisphere.
+ * Cosine-weighted directions make that pi times the mean radiance. 16 x 8 = 128 samples of
+ * the sky-view LUT; the LUT is smooth, so this is plenty.
+ */
+export const SKY_IRRADIANCE_FRAG = /* glsl */ `
+uniform float uViewRadius;
+void main() {
+  vec3 p = vec3(0.0, uViewRadius, 0.0);
+  vec3 sum = vec3(0.0);
+  for (int i = 0; i < 16; i++) {
+    for (int j = 0; j < 8; j++) {
+      float u1 = (float(j) + 0.5) / 8.0;
+      float phi = 2.0 * PI * (float(i) + 0.5) / 16.0;
+      float sinT = sqrt(u1);
+      vec3 dir = vec3(sinT * cos(phi), sqrt(1.0 - u1), sinT * sin(phi));
+      sum += skyLuminance(p, dir);
+    }
+  }
+  gl_FragColor = vec4(PI * sum / 128.0, 1.0);
+}
+`;

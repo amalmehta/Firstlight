@@ -42,7 +42,8 @@ void main() {
     vec3 T = getTransmittance(length(uCamAtm), dot(dir, normalize(uCamAtm)));
     col += uSunIlluminance * T * limb * edge / uSunSolidAngle;
   }
-  gl_FragColor = vec4(col, 1.0);
+  // Half-float targets top out at 65504; the pre-exposed sun disk can exceed that.
+  gl_FragColor = vec4(min(col, vec3(6.0e4)), 1.0);
 }
 `;
 

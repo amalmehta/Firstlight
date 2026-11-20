@@ -38,7 +38,11 @@ import { createStage, Terrain } from '../Firstlight/src/index.ts';
 | `createStage(container, opts)` | Renderer, camera, orbit controls, sky, sun. Fills the container and renders on demand. |
 | `stage.add(...objects)` | Adds any three.js objects. A `Terrain` also keeps the camera above ground and shadows every lit material. |
 | `stage.setSun({ elevation, azimuth })` | Degrees above the horizon; degrees clockwise from north (−z). |
-| `stage.setExposure(x)` | Default 6. |
+| `stage.setExposure(mode)` | `'auto'` (default: an incident light meter at the camera), a fixed EV100 number, or `{ aperture, shutter, iso }`. |
+| `stage.setExposureCompensation(stops)` | Brighter (+) or darker (−) than the exposure gives. |
+| `stage.getExposure()` | EV100 used, metered lux (total and from the sky), equivalent camera settings. |
+| `stage.setSunIlluminance(lux)` | Sun above the atmosphere; Earth is 133 800 lux. |
+| `stage.onRender(fn)` | Run after each drawn frame (for readouts). |
 | `stage.invalidate({ shadows? })` | Ask for a frame after you change something yourself. |
 | `stage.loop((dt, t) => …)` | Opt into continuous animation (pass `null` to stop). |
 | `stage.resetCamera()` | Also bound to double-click and R. |
@@ -48,8 +52,10 @@ import { createStage, Terrain } from '../Firstlight/src/index.ts';
 | `new Atmosphere(params)` / `EARTH` | The Hillaire 2020 model; pass `atmosphere: { mieScattering: 0.02 }` to `createStage` for a hazy day. |
 | `Atmosphere.glsl` | GLSL with `skyLuminance()` and `integrateScattering()` for your own shaders. |
 
-Units: metres in the scene, kilometres inside the atmosphere. Light is in relative units
-(solar illuminance = 1), not lux.
+Units: metres in the scene, kilometres inside the atmosphere. Light is photometric: lux for
+illuminance, cd/m² for luminance, exposure in EV100. Values are pre-exposed (multiplied by
+the camera's exposure) before they reach the half-float buffers. `photometry` exports the
+formulas (`ev100FromCamera`, `ev100FromIlluminance`, `exposureScale`).
 
 ## Add a module (path tracing, splats, clouds…)
 
@@ -72,3 +78,4 @@ browser window **visible** (hidden tabs throttle animation to about 1 frame per 
 - [ ] **Privacy:** nothing leaves the device. The only network requests are the page itself and Google Fonts (check in the Network tab).
 - [ ] **Unsupported device:** in a browser with WebGL disabled, a plain message replaces the scene.
 - [ ] **Self-check page:** every row passes.
+- [ ] **Metering:** the readout under the sliders reads about EV 15 with the sun at 60°; Settings → Metering → Sunny 16 turns dusk nearly black while Auto keeps it visible.

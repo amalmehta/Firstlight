@@ -18,7 +18,8 @@ are the authors' published numbers on their hardware, not Firstlight measurement
 Ranked by visible gain for the "cinematic scene in about 30 lines" goal, divided by effort,
 with dependencies first.
 
-### 1. Photometric units and a physical camera (EV100)
+### 1. Photometric units and a physical camera (EV100) — built 2026-11-19
+- **Status.** Built; see SYSTEM-DESIGN.md. The measured values are in VIZ-LOG.md.
 - **What.** Hillaire's tables are built with sun illuminance = 1, so they are transfer
   functions. Multiply by the sun's illuminance in lux and you get luminance in cd/m². Then
   expose like a camera: EV100 from aperture, shutter and ISO, and exposure = 1 / (1.2 · 2^EV100).
@@ -101,6 +102,13 @@ with dependencies first.
 ### 7. Terrain materials and LOD
 - **Textures.** Hex-tiling (Mikkelsen, JCGT 2022: three texture taps, no precompute; https://jcgt.org/published/0011/03/05/paper.pdf), triplanar projection on steep slopes, and height-blended splatting. About 150–300 lines plus texture assets and their licences.
 - **Geometry.** CDLOD (Strugar 2009) lifts the 39 m limit so erosion detail shows in silhouettes. About 400–600 lines.
+
+## Found while building #1
+- **Terrain-shadowed in-scattering.** In the froxel pass, scale single scattering by the
+  terrain's sun visibility at each sample (a heightfield march toward the sun at the volume's
+  32³ resolution: roughly 32 768 texels × slices × about 12 steps per frame). Without it, air in
+  a ridge's shadow glows, and a shaded valley at golden hour looks foggy. This is also the
+  basis for "god rays" through ridges.
 
 ## Later, or gated on a measurement
 - **WebGPU port.**

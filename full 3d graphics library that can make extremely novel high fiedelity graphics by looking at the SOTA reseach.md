@@ -536,7 +536,7 @@ Answered by owner (2026-11-19):
 Decided without asking:
 - Renderer: three r187 WebGLRenderer (WebGL2). The WebGPU renderer is deferred because most of the ecosystem (path tracer, splats, postprocessing) is still WebGL2.
 - No AI model at runtime. Everything is deterministic shaders and seeded noise. No paid services, keys or data collection. Preferences in the demo use localStorage, wrapped in try/catch.
-- Units: metres. Sun light is in relative units (solar illuminance = 1 × intensity), not lux, and is labeled so.
+- Units: metres. Light is photometric since 2026-11-19 (lux, cd/m², EV100); before that it was relative.
 - Rendering happens on demand (only when something changes), to save battery. Reduce Motion turns off camera damping and the intro animation.
 - Feedback tab: a link to a prefilled GitHub issue, so no data is collected.
 - Mockups skipped: tone and scene were chosen. A rendered first version serves as the sketch.
@@ -556,6 +556,7 @@ CHANGELOG:
 - 2026-11-19 — answered the design questions; filled in DELIVERABLES, DEFINITIONS AND DEFERRED, and assumptions; built Firstlight v1 (core + Hillaire sky)
 - 2026-11-19 — MIT license; published to github.com/amalmehta/Firstlight with a Pages demo
 - 2026-11-19 — SOTA research pass: ranked roadmap in docs/RESEARCH.md (photometric units/EV100, erosion filter, GTAO, clouds, splats, idle path tracing)
+- 2026-11-19 — built roadmap item 1: photometric units and a physical camera (EV100, auto incident meter, Sunny 16)
 - 2026-09-15 — added meta-instruction: built-out applications include a small feedback tab
 - 2026-09-15 — added meta-instruction: no "Claude" attribution in commits, PRs, or branches
 - 2026-09-16 — added meta-instruction: always include a README when adding to GitHub

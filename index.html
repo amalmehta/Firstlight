@@ -34,8 +34,9 @@
     </label>
     <label class="control">
       <span class="row"><span class="name">◐ Exposure</span><output id="expo-out"></output></span>
-      <input id="expo" type="range" min="1" max="20" step="0.1" />
+      <input id="expo" type="range" min="-3" max="3" step="0.1" />
     </label>
+    <p class="meter" id="meter" aria-live="off" title="What a light meter at the camera reads, and the camera settings that expose it"></p>
     <div class="buttons">
       <button id="reset" type="button" title="Reset view (R or double-click)">↺ Reset view</button>
       <button id="save" type="button" title="Save image (S)">⤓ Save image</button>
@@ -54,8 +55,9 @@
         <li><i>σ<sub>t</sub></i>: extinction, how much light air removes per kilometre (1/km)</li>
         <li><i>d</i>: path length through the air (km)</li>
       </ul>
+      <p><strong>Real light units.</strong> Sunlight arrives at 133,800 lux above the air. The demo meters the light at the camera like a photographer's light meter and picks the exposure (EV) for it, so noon and dusk both look right. Switch Settings → Metering to Sunny 16 to see how a fixed camera would see dusk: nearly black.</p>
       <p>Blue light scatters about 5.7× more than red (Rayleigh: σ ∝ λ<sup>−4</sup>, and (680/440)<sup>4</sup> ≈ 5.7), so a low sun, seen through a long path, turns orange. The sky is precomputed into three small tables each frame, following <a href="https://sebh.github.io/publications/egsr2020.pdf" target="_blank" rel="noopener">Hillaire 2020</a>.</p>
-      <p class="fine">Light is in relative units, not lux. Terrain, colours and exposure are estimates chosen by eye; the atmosphere constants are Earth's, cited in the docs.</p>
+      <p class="fine">Light is in lux and cd/m². Terrain colours are estimates; the atmosphere constants are Earth's, cited in the docs. The meter treats the RGB channels as luminance, which is approximate.</p>
     </details>
   </section>
 
@@ -71,6 +73,12 @@
           <option value="1">Fast (1× pixels)</option>
           <option value="1.5">Balanced (1.5×)</option>
           <option value="2">Sharp (2×, Retina)</option>
+        </select>
+      </label>
+      <label class="field"><span>Metering</span>
+        <select id="metering">
+          <option value="auto">Auto (light meter)</option>
+          <option value="sunny16">Fixed: Sunny 16 (f/16, 1/125 s)</option>
         </select>
       </label>
       <label class="field"><span>Tone mapping</span>
