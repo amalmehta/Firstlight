@@ -29,3 +29,7 @@ stage.add(terrain, myMesh); // any three.js object; it is lit, shadowed and haze
 **[Instructions](docs/INSTRUCTIONS.md)** · [System design](docs/SYSTEM-DESIGN.md) ·
 [Concepts (CS184 → papers)](docs/CONCEPTS.md) · [Viz log](docs/VIZ-LOG.md) ·
 [File structure](docs/FILE-STRUCTURE.md) · [Prompt log](docs/PROMPTS.md) · MIT license
+
+## How it was built
+
+How this was built and how it works, with diagrams: [docs/HOW-IT-WAS-BUILT.md](docs/HOW-IT-WAS-BUILT.md)
