@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Firstlight · Hello</title>
+<style>html, body { margin: 0; height: 100%; background: #f4efe6; }</style>
+<body>
+<script type="module">
+  import * as THREE from 'three';
+  import { createStage, Terrain } from '../src/index.ts';
+
+  const terrain = new Terrain({ seed: 7 });
+  const ground = terrain.heightAt(0, 0);
+  const stage = createStage(document.body, {
+    sun: { elevation: 22, azimuth: 290 },
+    camera: { position: [-30, ground + 8, 60], target: [0, ground + 5, 0] },
+  });
+
+  const steel = new THREE.MeshStandardMaterial({ color: 0xd8d4cc, metalness: 1, roughness: 0.22 });
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(5, 96, 48), steel);
+  sphere.position.set(0, ground + 5, 0);
+  sphere.castShadow = sphere.receiveShadow = true;
+
+  stage.add(terrain, sphere);
+</script>
+</body>
+</html>

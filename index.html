@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Firstlight</title>
+  <meta name="description" content="Physically based sky, sun and haze for three.js, in a few lines." />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icon-180.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./demo/style.css" />
+</head>
+<body>
+  <div id="stage" aria-describedby="scene-summary"></div>
+
+  <header class="brand">
+    <img class="mark" src="./icon.svg" alt="" width="40" height="40" />
+    <div>
+      <h1>Firstlight</h1>
+      <p>A physically based sky for three.js</p>
+    </div>
+  </header>
+
+  <section class="panel" aria-label="Scene controls">
+    <label class="control">
+      <span class="row"><span class="name">☀︎ Sun height</span><output id="elev-out"></output></span>
+      <input id="elev" type="range" min="-4" max="70" step="0.1" />
+    </label>
+    <label class="control">
+      <span class="row"><span class="name">🧭 Sun direction</span><output id="azim-out"></output></span>
+      <input id="azim" type="range" min="0" max="360" step="0.5" />
+    </label>
+    <label class="control">
+      <span class="row"><span class="name">◐ Exposure</span><output id="expo-out"></output></span>
+      <input id="expo" type="range" min="1" max="20" step="0.1" />
+    </label>
+    <div class="buttons">
+      <button id="reset" type="button" title="Reset view (R or double-click)">↺ Reset view</button>
+      <button id="save" type="button" title="Save image (S)">⤓ Save image</button>
+      <button id="open-settings" type="button" class="icon" title="Settings (⌘,)" aria-label="Settings">⚙︎</button>
+    </div>
+    <details class="explain">
+      <summary>How this works</summary>
+      <p><strong>The sky is the light source.</strong> One model of the atmosphere gives the sky colour, the sun's colour, the light bouncing in from the whole sky, and the blue haze on distant ridges. Move the sun and all four change together, which is why the scene stays believable at any hour.</p>
+      <p>Light loses a fraction of itself for every kilometre of air it crosses, so what survives is an exponential:</p>
+      <math display="block" class="eq">
+        <mi>T</mi><mo>=</mo>
+        <msup><mi>e</mi><mrow><mo>−</mo><msubsup><mo>∫</mo><mn>0</mn><mi>d</mi></msubsup><msub><mi>σ</mi><mi>t</mi></msub><mo>(</mo><mi>s</mi><mo>)</mo><mspace width="0.2em"/><mi>d</mi><mi>s</mi></mrow></msup>
+      </math>
+      <ul class="symbols">
+        <li><i>T</i>: transmittance, the fraction of light that gets through (0 to 1, no unit)</li>
+        <li><i>σ<sub>t</sub></i>: extinction, how much light air removes per kilometre (1/km)</li>
+        <li><i>d</i>: path length through the air (km)</li>
+      </ul>
+      <p>Blue light scatters about 5.7× more than red (Rayleigh: σ ∝ λ<sup>−4</sup>, and (680/440)<sup>4</sup> ≈ 5.7), so a low sun, seen through a long path, turns orange. The sky is precomputed into three small tables each frame, following <a href="https://sebh.github.io/publications/egsr2020.pdf" target="_blank" rel="noopener">Hillaire 2020</a>.</p>
+      <p class="fine">Light is in relative units, not lux. Terrain, colours and exposure are estimates chosen by eye; the atmosphere constants are Earth's, cited in the docs.</p>
+    </details>
+  </section>
+
+  <p id="scene-summary" class="sr-only">An alpine valley in afternoon light: a meadow floor with a polished steel sphere and a stone pillar, conifer slopes and snow-capped ridges fading blue with distance under a clear sky.</p>
+
+  <a class="feedback" href="https://github.com/amalmehta/Firstlight/issues/new?title=Feedback%3A%20&labels=feedback" target="_blank" rel="noopener">✎ Feedback</a>
+
+  <dialog id="settings" aria-labelledby="settings-title">
+    <form method="dialog">
+      <h2 id="settings-title">Settings</h2>
+      <label class="field"><span>Quality</span>
+        <select id="quality">
+          <option value="1">Fast (1× pixels)</option>
+          <option value="1.5">Balanced (1.5×)</option>
+          <option value="2">Sharp (2×, Retina)</option>
+        </select>
+      </label>
+      <label class="field"><span>Tone mapping</span>
+        <select id="tone">
+          <option value="agx">AgX: natural highlights</option>
+          <option value="aces">ACES: more contrast</option>
+        </select>
+      </label>
+      <label class="field"><span>Page theme</span>
+        <select id="theme">
+          <option value="system">Match system</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+      <div class="field">
+        <span>Frame time</span>
+        <button id="bench" type="button">Measure (3 s orbit)</button>
+      </div>
+      <p id="bench-out" class="fine" aria-live="polite">Orbits the camera for 3 seconds and reports the median time between frames. 16.7 ms or less means 60 fps.</p>
+      <p class="fine">Stored on this device only (your browser's local storage): sun, exposure and these settings. Nothing is sent anywhere.</p>
+      <div class="dialog-buttons">
+        <button id="clear-prefs" type="button">Clear saved settings</button>
+        <button value="close" class="primary">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./demo/main.ts"></script>
+</body>
+</html>
