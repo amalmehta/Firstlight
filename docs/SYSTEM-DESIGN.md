@@ -57,6 +57,8 @@ flowchart LR
 | `stage/shaders.ts` | Sky background, environment cube, aerial froxel volume, composite (exposure, AgX, sRGB) | Color and perception |
 | `terrain/Terrain.ts` | Seeded ridged-fBm heightfield; albedo by slope and height (grass, conifer, rock, snow); per-pixel detail; baked sun visibility applied to every lit material | Meshes, texture mapping, shading, ray tracing |
 | Environment (in `Stage`) | Renders the sky into a 64² cube map → PMREM → `scene.environment` | Materials (image-based lighting) |
+| `clouds/Clouds.ts` + `glsl.ts` | Cumulus layer: GPU-generated noise, reduced-resolution march, shadow map; shades lit materials and the haze | Monte Carlo integration, volume rendering |
+| `clouds/reference.ts` + `pathTrace.ts` | CPU mirror of the cloud maths and a Monte Carlo slab path tracer the octaves are fitted to | Monte Carlo integration, path tracing |
 
 ## Main flows
 
@@ -71,7 +73,9 @@ flowchart LR
 3. **Frame.** Only when dirty (camera moved, sun moved, resize, or the user
    called `invalidate()`): update the sky-view LUT, rebake terrain sun visibility
    if the sun moved, render the 32 aerial slices, render the scene into the HDR
-   target (sky first), then composite to the canvas. The sun's shadow map is
+   target (sky first), march the clouds into a reduced-resolution buffer (stopping at scene
+   depth), then composite to the canvas (haze, then clouds upsampled by depth). The cloud
+   shadow map is rebaked only when the sun, the clouds or the orbit target move. The sun's shadow map is
    redrawn only when the sun or orbit target moves, or in `loop()` mode.
    `stage.loop(fn)` opts into continuous animation.
 
@@ -161,6 +165,18 @@ losing them is harmless.
   highlights towards white instead of skewing hues, so the sun and the horizon
   stay natural.
 
+- **Clouds: published recipe, refitted constants.** The density model, phase function and
+  integration follow Schneider 2015, Jendersie & d'Eon 2023 and Hillaire 2016. The
+  multiple-scattering octaves do not: the quoted a = b = c = ½ was 2.5–6× too dark against
+  our own path tracer, so N 8, a 0.8, b 0.9, c 0.25 were fitted (35% RMS). Trade-off: a fit
+  to one slab, not to every cloud shape.
+- **Clouds at reduced resolution, no temporal accumulation.** Render-on-demand means a still
+  frame must be complete on its own, so the buffer is ~0.2 MP (scale 2-5 by canvas size),
+  jittered per step, and upsampled using depth. Trade-off: softer, slightly grainy edges.
+- **Loop bounds the compiler cannot see.** Cloud shaders multiply loop bounds by a uniform
+  that is always 1, which stops unrolling: compile 1.4 s → 0.11 s for the march, at no
+  measurable GPU cost at the default view.
+
 ## Scale and what would change
 
 v1 targets one canvas per page, one sun, one terrain tile of about 20 km.
@@ -172,8 +188,8 @@ v1 targets one canvas per page, one sun, one terrain tile of about 20 km.
 
 ## Next ten steps (designed for, not built)
 
-1. Volumetric clouds (Hillaire 2016, Schneider 2015). They read the same
-   transmittance and multi-scattering LUTs, so the LUT API is public.
+1. ~~Volumetric clouds~~ built (see Components). Next for clouds: temporal accumulation
+   while the camera is still, clouds in the environment map, wind via `offset` in `loop()`.
 2. A progressive path-traced still mode (three-gpu-pathtracer). The stage owns
    the render loop, so "camera stopped" is a single hook.
 3. Gaussian splats (Spark). They are added to `stage.scene` like any mesh;
@@ -196,7 +212,10 @@ hooks, and the composite reads only the HDR colour and depth.
   depths; sunset reddening; zenith clear-sky values; sun-direction maths;
   terrain determinism.
 - **GPU (self-check page):** reads back the transmittance LUT and compares it
-  with the CPU reference (max relative error must be under 1%).
+  with the CPU reference (max relative error must be under 1%); checks the cloud buffer is
+  finite and in range and the cloud shadow map both shades and lets sun through.
+- **Clouds (Vitest):** phase normalisation, the analytic slab for the integration step,
+  octave energy, and the octave fit against a seeded Monte Carlo path tracer.
 - **Browser:** the demo is opened in the app's browser to check console errors,
   GPU-synced frame cost while orbiting (≈13.7 ms net at 1920×1200), and light,
   dark and phone-width screenshots. `stage.benchmark()` measures real frame
@@ -222,7 +241,10 @@ numeric sliders, clamped to their ranges.
   so a tall object's top is shadowed like its base.
 - Aerial transmittance is grey (one channel), as in the paper.
 - Terrain is a single 20 km tile with no LOD.
-- No clouds; the sky is always clear.
+- Clouds: reflections, the environment light and the sky part of the meter ignore them;
+  edges are soft and a little grainy at reduced resolution; light scattered through a cloud
+  onto the ground is not added; the octave lighting is within ~35% of a path tracer, not exact.
+  One layer only (cumulus); no cirrus or fog banks.
 - Erosion is aesthetic, not hydrology: drainage lines can stop part-way down a slope, and
   at the 39 m grid some foothills form small pyramids rather than ridges.
 - Each heavy pipeline's first draw is still one 100–230 ms task (Chrome/macOS builds it in

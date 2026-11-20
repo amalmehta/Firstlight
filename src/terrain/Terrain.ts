@@ -20,6 +20,7 @@ import {
 } from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { Noise2D } from './noise';
+import { compileWithDeadline } from '../stage/compile';
 import { yieldTask } from '../stage/yieldTask';
 import { baseHeight, buildTerrainData, type TerrainData, type TerrainOptions } from './build';
 
@@ -364,7 +365,7 @@ export class Terrain extends Mesh<BufferGeometry, MeshStandardMaterial> {
       mesh.frustumCulled = false;
       tmp.add(mesh);
     }
-    await renderer.compileAsync(tmp, camera);
+    await compileWithDeadline(renderer, tmp, camera);
     // Bake sky occlusion now, in its own task, rather than inside the first frame.
     await yieldTask();
     this.bakeSkyOcclusion(renderer);

@@ -48,6 +48,8 @@ import { createStage, Terrain } from '../Firstlight/src/index.ts';
 | `ambientOcclusion` option / `stage.setAmbientOcclusion(on)` | GTAO on indirect light only (default on, about +0.6 ms). Options: `{ radius, resolution, samples }`. |
 | `terrain.setSkyOcclusion(on)` | Terrain sky-view factor on indirect light (default on; baked once). |
 | `shadowedHaze` option | Terrain shadows the haze (default on, about +0.8 ms). |
+| `clouds` option / `stage.setClouds(opts)` | Volumetric cumulus (default on, 35% cover). `false` turns them off; options: `{ coverage, altitude: [base, top] m, extinction /m, dropletDiameter µm, offset: [x, z] m, shadows, steps, scale }`. They shade the ground, objects and haze, and the auto meter reads their shadow at the camera. |
+| `stage.clouds.sunTransmittanceAt(renderer, p, sunDir)` | Async: how much direct sun gets through the clouds at a point (0–1). |
 | `stage.invalidate({ shadows? })` | Ask for a frame after you change something yourself. |
 | `stage.loop((dt, t) => …)` | Opt into continuous animation (pass `null` to stop). |
 | `stage.resetCamera()` | Also bound to double-click and R. |
@@ -64,7 +66,7 @@ illuminance, cd/m² for luminance, exposure in EV100. Values are pre-exposed (mu
 the camera's exposure) before they reach the half-float buffers. `photometry` exports the
 formulas (`ev100FromCamera`, `ev100FromIlluminance`, `exposureScale`).
 
-## Add a module (path tracing, splats, clouds…)
+## Add a module (path tracing, splats…)
 
 Read [SYSTEM-DESIGN.md](SYSTEM-DESIGN.md), "Next ten steps". The hooks they need are the
 public LUT textures (`stage.atmosphere.transmittance / multiScattering / skyView`), the HDR
@@ -85,4 +87,7 @@ browser window **visible** (hidden tabs throttle animation to about 1 frame per 
 - [ ] **Privacy:** nothing leaves the device. The only network requests are the page itself and Google Fonts (check in the Network tab).
 - [ ] **Unsupported device:** in a browser with WebGL disabled, a plain message replaces the scene.
 - [ ] **Self-check page:** every row passes.
+- [ ] **Clouds:** the Cloud cover slider goes from clear to overcast smoothly; cloud shadows sit on the slopes where the clouds are, and at a low sun they stretch out without stripes.
+- [ ] **Cloud edges:** orbit slowly near a ridge with clouds behind it: the ridge outline stays sharp (no halo of cloud around it).
+- [ ] **Loading:** in a visible window, the page stays responsive (scrolling, hovering the panel) while it loads; no freeze longer than about a quarter second.
 - [ ] **Metering:** the readout under the sliders reads about EV 15 with the sun at 60°; Settings → Metering → Sunny 16 turns dusk nearly black while Auto keeps it visible.

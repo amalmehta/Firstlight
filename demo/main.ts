@@ -2,8 +2,8 @@ import { CylinderGeometry, Mesh, MeshStandardMaterial, SphereGeometry } from 'th
 import { createStage, FirstlightUnsupportedError, Terrain, type Stage } from '../src/index';
 
 /* ---------- Preferences (this device only) ---------- */
-interface Prefs { elevation: number; azimuth: number; compensation: number; metering: 'auto' | 'sunny16'; quality: number; tone: 'agx' | 'aces'; theme: 'system' | 'light' | 'dark' }
-const DEFAULTS: Prefs = { elevation: 22, azimuth: 290, compensation: 0, metering: 'auto', quality: 1.5, tone: 'agx', theme: 'system' };
+interface Prefs { elevation: number; azimuth: number; compensation: number; clouds: number; metering: 'auto' | 'sunny16'; quality: number; tone: 'agx' | 'aces'; theme: 'system' | 'light' | 'dark' }
+const DEFAULTS: Prefs = { elevation: 22, azimuth: 290, compensation: 0, clouds: 35, metering: 'auto', quality: 1.5, tone: 'agx', theme: 'system' };
 const KEY = 'firstlight.demo.v2'; // v2: exposure became EV compensation
 function loadPrefs(): Prefs {
   try {
@@ -23,6 +23,7 @@ const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.
 prefs.elevation = clamp(prefs.elevation, -4, 70);
 prefs.azimuth = clamp(prefs.azimuth, 0, 360);
 prefs.compensation = clamp(prefs.compensation, -3, 3);
+prefs.clouds = clamp(prefs.clouds, 0, 100);
 if (prefs.metering !== 'sunny16') prefs.metering = 'auto';
 if (![1, 1.5, 2].includes(prefs.quality)) prefs.quality = DEFAULTS.quality;
 if (prefs.tone !== 'aces') prefs.tone = 'agx';
@@ -48,6 +49,7 @@ try {
     sun: { elevation: prefs.elevation, azimuth: prefs.azimuth },
     exposure: meteringMode(),
     exposureCompensation: prefs.compensation,
+    clouds: { coverage: prefs.clouds / 100 },
     maxPixelRatio: prefs.quality,
     toneMapping: prefs.tone,
     camera: { position: [-26, 7, 46], target: [2, 4, 0] },
@@ -68,6 +70,7 @@ requestAnimationFrame(() => container.classList.add('ready'));
 const elev = $<HTMLInputElement>('elev');
 const azim = $<HTMLInputElement>('azim');
 const expo = $<HTMLInputElement>('expo');
+const cloudIn = $<HTMLInputElement>('clouds');
 const compass = (a: number) => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(a / 45) % 8];
 function describeSun(e: number): string {
   if (e < -0.5) return `${e.toFixed(1)}° · below horizon`;
@@ -79,10 +82,13 @@ function syncOutputs(): void {
   $('azim-out').textContent = `${prefs.azimuth.toFixed(0)}° · from ${compass(prefs.azimuth)}`;
   const c = prefs.compensation;
   $('expo-out').textContent = `${c > 0 ? '+' : c < 0 ? '−' : '±'}${Math.abs(c).toFixed(1)} EV`;
+  const k = prefs.clouds;
+  $('clouds-out').textContent = k === 0 ? 'clear' : `${k.toFixed(0)}% · ${k < 25 ? 'a few' : k < 55 ? 'scattered' : k < 85 ? 'broken' : 'overcast'}`;
 }
 elev.value = String(prefs.elevation);
 azim.value = String(prefs.azimuth);
 expo.value = String(prefs.compensation);
+cloudIn.value = String(prefs.clouds);
 syncOutputs();
 
 const fmtLux = (v: number) => (v >= 1000 ? `${Math.round(v / 100) / 10}k` : v >= 10 ? Math.round(v).toString() : v.toFixed(1));
@@ -114,6 +120,12 @@ azim.addEventListener('input', () => {
 expo.addEventListener('input', () => {
   prefs.compensation = Number(expo.value);
   stage.setExposureCompensation(prefs.compensation);
+  syncOutputs(); savePrefs();
+});
+
+cloudIn.addEventListener('input', () => {
+  prefs.clouds = Number(cloudIn.value);
+  stage.setClouds({ coverage: prefs.clouds / 100 });
   syncOutputs(); savePrefs();
 });
 
@@ -154,9 +166,9 @@ $('bench').addEventListener('click', async () => {
 $('clear-prefs').addEventListener('click', () => {
   try { localStorage.removeItem(KEY); } catch { /* nothing stored */ }
   Object.assign(prefs, DEFAULTS);
-  elev.value = String(prefs.elevation); azim.value = String(prefs.azimuth); expo.value = String(prefs.compensation); metering.value = prefs.metering;
+  elev.value = String(prefs.elevation); azim.value = String(prefs.azimuth); expo.value = String(prefs.compensation); cloudIn.value = String(prefs.clouds); metering.value = prefs.metering;
   quality.value = String(prefs.quality); tone.value = prefs.tone; theme.value = prefs.theme;
-  stage.setSun(prefs).setExposure(meteringMode()).setExposureCompensation(prefs.compensation).setMaxPixelRatio(prefs.quality).setToneMapping(prefs.tone);
+  stage.setSun(prefs).setExposure(meteringMode()).setExposureCompensation(prefs.compensation).setMaxPixelRatio(prefs.quality).setToneMapping(prefs.tone).setClouds({ coverage: prefs.clouds / 100 });
   applyTheme(); syncOutputs();
 });
 

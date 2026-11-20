@@ -125,6 +125,40 @@ uniform sampler2D tDepth;
 uniform sampler3D tAerial;
 uniform float uAerialOn;
 varying vec2 vUv;
+#ifdef CLOUDS
+uniform sampler2D tClouds;
+uniform float uCloudsOn;
+uniform float uCloudScale;
+uniform float uNear;
+uniform float uFar;
+float linearDepth(float d) {
+  float z = d * 2.0 - 1.0;
+  return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear));
+}
+// Depth-aware upsampling of the reduced-resolution clouds: of the four nearest cloud texels,
+// trust the ones whose own pixel lies at a similar depth, so mountain edges stay sharp.
+vec4 cloudsAt(ivec2 px) {
+  ivec2 cs = textureSize(tClouds, 0);
+  ivec2 fs = textureSize(tDepth, 0);
+  int S = int(uCloudScale);
+  vec2 lp = vec2(px) / uCloudScale;
+  vec2 b = floor(lp);
+  vec2 f = lp - b;
+  float zc = linearDepth(texelFetch(tDepth, px, 0).x);
+  vec4 acc = vec4(0.0);
+  float wsum = 0.0;
+  for (int k = 0; k < 4; k++) {
+    ivec2 o = ivec2(k & 1, k >> 1);
+    ivec2 q = clamp(ivec2(b) + o, ivec2(0), cs - 1);
+    float wb = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y) + 1e-4;
+    float zq = linearDepth(texelFetch(tDepth, min(q * S, fs - 1), 0).x);
+    float w = wb / (1e-3 + abs(zq - zc) / zc);
+    acc += texelFetch(tClouds, q, 0) * w;
+    wsum += w;
+  }
+  return acc / wsum;
+}
+#endif
 void main() {
   vec3 col = texture(tColor, vUv).rgb;
   float depth = texture(tDepth, vUv).x;
@@ -140,6 +174,12 @@ void main() {
     vec4 ap = texture(tAerial, vec3(vUv, min(w, 1.0)));
     col = col * mix(1.0, ap.a, weight) + ap.rgb * weight;
   }
+#ifdef CLOUDS
+  if (uCloudsOn > 0.5) {
+    vec4 c = cloudsAt(ivec2(gl_FragCoord.xy));
+    col = col * c.a + c.rgb;
+  }
+#endif
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>

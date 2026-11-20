@@ -16,3 +16,22 @@ export function yieldTask(): Promise<void> {
     channel.port2.postMessage(0);
   });
 }
+
+/**
+ * Resolve once the GPU has finished everything queued so far (a fence), yielding meanwhile.
+ * Used to pace heavy one-off GPU work (noise generation) so it never builds a backlog that
+ * a later synchronous WebGL call would have to wait behind.
+ */
+export async function gpuIdle(gl: WebGL2RenderingContext, maxPolls = 2000): Promise<void> {
+  const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  if (!sync) return;
+  gl.flush();
+  try {
+    for (let i = 0; i < maxPolls; i++) {
+      if (gl.getSyncParameter(sync, gl.SYNC_STATUS) === gl.SIGNALED) return;
+      await yieldTask();
+    }
+  } finally {
+    gl.deleteSync(sync);
+  }
+}

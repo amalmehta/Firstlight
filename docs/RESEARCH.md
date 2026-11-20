@@ -55,7 +55,12 @@ with dependencies first.
 - **Risk.** Screen-space only. It darkens the sky-lit ambient light where it should; it adds no bounce light.
 - **Check.** Compare against path-traced AO from candidate 6.
 
-### 4. Volumetric clouds (Nubis and Frostbite lineage)
+### 4. Volumetric clouds (Nubis and Frostbite lineage) — built 2026-11-19 (see VIZ-LOG.md)
+- **Status.** Built: weather map + Perlin-Worley/Worley noise, Jendersie & d'Eon 2023 phase
+  function, Frostbite step integration, octaves *refitted* against a path tracer (the quoted
+  ½ values were 2.5–6× too dark), half/third-resolution march with depth-aware upsampling,
+  cloud shadow map for ground, objects, haze and the exposure meter. Not built: temporal
+  upscaling, distance-field empty-space skipping, clouds in the environment map.
 - **What.**
   - Density from a weather map plus 3D noise.
   - Frostbite's energy-conserving step integration.

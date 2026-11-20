@@ -36,6 +36,10 @@
       <span class="row"><span class="name">◐ Exposure</span><output id="expo-out"></output></span>
       <input id="expo" type="range" min="-3" max="3" step="0.1" />
     </label>
+    <label class="control">
+      <span class="row"><span class="name">☁︎ Cloud cover</span><output id="clouds-out"></output></span>
+      <input id="clouds" type="range" min="0" max="100" step="1" />
+    </label>
     <p class="meter" id="meter" aria-live="off" title="What a light meter at the camera reads, and the camera settings that expose it"></p>
     <div class="buttons">
       <button id="reset" type="button" title="Reset view (R or double-click)">↺ Reset view</button>
@@ -57,6 +61,7 @@
       </ul>
       <p><strong>Real light units.</strong> Sunlight arrives at 133,800 lux above the air. The demo meters the light at the camera like a photographer's light meter and picks the exposure (EV) for it, so noon and dusk both look right. Switch Settings → Metering to Sunny 16 to see how a fixed camera would see dusk: nearly black.</p>
       <p>Blue light scatters about 5.7× more than red (Rayleigh: σ ∝ λ<sup>−4</sup>, and (680/440)<sup>4</sup> ≈ 5.7), so a low sun, seen through a long path, turns orange. The sky is precomputed into three small tables each frame, following <a href="https://sebh.github.io/publications/egsr2020.pdf" target="_blank" rel="noopener">Hillaire 2020</a>.</p>
+      <p>Clouds are a cumulus layer marched through 3D noise. Light reaches each point through the same atmosphere (so a low sun warms them), scatters mostly forward (<a href="https://research.nvidia.com/labs/rtr/approximate-mie/" target="_blank" rel="noopener">a fitted Mie phase function</a>), and bounces many times inside; that last part is an approximation checked against a path tracer. Their shadows fall on the ground, the objects and the haze.</p>
       <p class="fine">Light is in lux and cd/m². Terrain colours are estimates; the atmosphere constants are Earth's, cited in the docs. The meter treats the RGB channels as luminance, which is approximate.</p>
     </details>
   </section>

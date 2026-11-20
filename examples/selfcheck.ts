@@ -1,4 +1,4 @@
-import { DataUtils } from 'three';
+import { DataUtils, Vector3 } from 'three';
 import { createStage, EARTH, reference, LUT_SIZES, Terrain, skyView } from '../src/index';
 
 type Row = { name: string; result: string; pass: boolean };
@@ -11,7 +11,8 @@ const show = () => {
 };
 
 // 1. GPU transmittance LUT vs CPU reference, texel by texel.
-const stage = createStage(document.getElementById('stage')!);
+// Clouds start clear so the photometry rows measure the open sky; row 7 turns them on.
+const stage = createStage(document.getElementById('stage')!, { clouds: { coverage: 0 } });
 await stage.ready; // shaders compile in parallel first
 stage.render();
 const [w, h] = LUT_SIZES.transmittance;
@@ -145,6 +146,55 @@ rows.push({
     result: `max difference ${maxErr.toFixed(3)} (${worst})`,
     pass: maxErr < 0.02,
   });
+}
+
+// 7. Clouds: the march output is sane, and the shadow map both shades and lets sun through.
+{
+  // The page keeps the canvas tiny; give it a real size so the cloud buffer has pixels.
+  const box = document.getElementById('stage')!;
+  box.style.cssText = 'position:fixed;left:-10000px;top:0;width:480px;height:320px';
+  stage.setMaxPixelRatio(1); // re-reads the container size now (animation frames may be paused)
+  stage.setClouds({ coverage: 0.35 });
+  stage.setSun({ elevation: 40, azimuth: 200 });
+  stage.controls.maxPolarAngle = Math.PI * 0.95; // let the camera look up for this check
+  stage.setView({ position: [0, 300, 0], target: [0, 3300, -1500] });
+  await stage.settle();
+  const c = stage.clouds!;
+  const cw = c.target.width;
+  const ch = c.target.height;
+  const cb = new Uint16Array(cw * ch * 4);
+  stage.renderer.readRenderTargetPixels(c.target, 0, 0, cw, ch, cb);
+  let finite = true;
+  let inRange = true;
+  let cloudy = 0;
+  for (let i = 0; i < cw * ch; i++) {
+    for (let k = 0; k < 4; k++) if (!Number.isFinite(DataUtils.fromHalfFloat(cb[i * 4 + k]))) finite = false;
+    const T = DataUtils.fromHalfFloat(cb[i * 4 + 3]);
+    if (T < -1e-3 || T > 1.001) inRange = false;
+    if (T < 0.5) cloudy++;
+  }
+  const frac = cloudy / (cw * ch);
+  rows.push({
+    name: 'Clouds (35% cover, looking up): output finite, transmittance within [0, 1], some cloud and some clear sky',
+    result: `finite ${finite}, in range ${inRange}, ${(frac * 100).toFixed(0)}% of pixels mostly cloud`,
+    pass: finite && inRange && frac > 0.05 && frac < 0.98,
+  });
+  const sd = stage.atmosphere.uniforms.uSunDir.value;
+  let lo = 1;
+  let hi = 0;
+  for (let i = -3; i <= 3; i++) {
+    for (let j = -3; j <= 3; j++) {
+      const t = await c.sunTransmittanceAt(stage.renderer, new Vector3(i * 2500, 0, j * 2500), sd);
+      lo = Math.min(lo, t);
+      hi = Math.max(hi, t);
+    }
+  }
+  rows.push({
+    name: 'Cloud shadows over a 15 km square: some ground shaded (< 0.3), some in sun (> 0.95)',
+    result: `sunlight getting through ranges ${lo.toFixed(2)} to ${hi.toFixed(2)}`,
+    pass: lo < 0.3 && hi > 0.95,
+  });
+  stage.controls.maxPolarAngle = Math.PI * 0.495;
 }
 
 // 6. No WebGL errors.

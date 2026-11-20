@@ -106,6 +106,55 @@ how it was checked, and what changed.
 - **Fix:** staged first frames, one pipeline per task. New objects are inserted hidden and shown one per task. Yields use `scheduler.yield`/`MessageChannel`, because chained `setTimeout`s stalled the load in the throttled pane.
 - **After:** many short tasks, the longest 126–234 ms across runs. The self-check still passes.
 
+## Alpine valley demo: volumetric clouds (2026-11-19)
+
+| Clouds off | Clouds on (35% cover, default view) |
+|---|---|
+| ![](images/clouds-off.jpg) | ![](images/clouds-on.jpg) |
+
+| Looking up from the valley floor | Golden hour (sun 5°), looking away from the sun | 80% cover, camera in cloud shadow |
+|---|---|---|
+| ![](images/clouds-up.jpg) | ![](images/clouds-golden.jpg) | ![](images/clouds-broken.jpg) |
+
+- **What:** a cumulus layer at 2.6–4.6 km, marched per pixel at reduced resolution, lit by the
+  sun through the atmosphere and by the sky. Its shadow map darkens the ground, your objects and
+  the haze, and the auto meter reads it at the camera (in shade it opens up about 2.7 stops,
+  as a real incident meter would).
+- **Calibration (the main finding):** a Monte Carlo path tracer of a thick slab (τ = 50, same
+  phase function, `src/clouds/pathTrace.ts`) is the reference. The commonly quoted octave
+  values a = b = c = ½ came out 2.5–6× too dark: front-lit clouds were grey. A grid search
+  under a ≤ b gave N 8, a 0.8, b 0.9, c 0.25: 35% RMS error over sun 10–60° and view cosines
+  0.3–0.9, worst 1.7×. It cannot match the angular shape everywhere; that is a limit of the
+  octave model, kept on record in the tests.
+- **How it got here, by looking:**
+  - First render: almost no clouds. The coverage ramp could never reach 1 (a remap bug).
+  - Then "marshmallows": flat-topped cylinders. Reading the shape texture back showed its
+    values squashed into 0.71–0.92, so the noise never carved anything. Stretched to 0–1;
+    domes come from lowering the top near a cell's edge.
+  - Stripes on cloud faces: the empty-space skip backed up, found air, skipped again and never
+    integrated. Fixed with a fine-step window after each entry, plus ±25% per-step jitter.
+  - Stripes on slopes at a low sun: the shadow lookup magnifies the map about 11× along slopes;
+    its 1 km steps showed. Now ~120 m steps.
+  - The camera started in a cloud shadow at the demo's (and hello example's) default view; the
+    default cloud offset is now 3 km east (probed, so the origin is sunlit).
+- **Cost (GPU timer queries, 1500×938, cloud buffer 500×313):** 1.3 ms at the default view,
+  3.5 ms looking up at 35% cover, 6.5 ms looking up at 80%. The buffer resolution adapts to
+  stay near 0.2 MP. Whole frames in this session measured 25–31 ms both with and without
+  clouds and on the previous commit, so the GPU was slower than in earlier sessions; the
+  absolute frame budget needs a visible-window check.
+- **Load:** the cloud shaders first took 0.34–1.4 s each to compile, because the compiler
+  unrolled fixed loops (one 24-step loop inlined the density function 24 times). With loop
+  bounds the compiler cannot see, they take 0.03–0.11 s. Noise generation (about 0.25 s of GPU
+  work) is fed to the GPU 4 slices at a time and waits on a fence between batches. Some
+  programs never reported parallel-compile completion, so `compileAsync` would hang;
+  `compileWithDeadline` finishes them after 1.5 s. Long-task numbers could not be measured in
+  the hidden browser pane this session (no entries arrive); the checklist asks for a visible check.
+- **Self-check:** two new rows pass (output finite, transmittance in range, 26% cloud looking
+  up at 35%; shadow map spans 0.00–1.00 over 15 km).
+- **Known limits:** reflections and the sky-light meter ignore clouds; edges are a little soft
+  and grainy at reduced resolution; no temporal accumulation; light scattered through a cloud
+  onto the ground is not added (shadows under thin cloud are slightly too dark).
+
 ## Hello example (examples/hello.html), 2026-11-19
 
 The same stage in 15 lines: terrain plus a steel sphere. It exists to prove the "30 lines"

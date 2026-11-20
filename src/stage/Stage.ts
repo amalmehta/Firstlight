@@ -43,8 +43,10 @@ import {
   type CameraSettings,
 } from '../camera/photometry';
 import { ScreenAO, type AOOptions } from './ambientOcclusion';
+import { Clouds, type CloudOptions } from '../clouds/Clouds';
 import { yieldTask } from './yieldTask';
-import { AERIAL_FRAG, AERIAL_SLICES, COMPOSITE_FRAG, ENV_FRAG, ENV_VERT, SKY_FRAG, SKY_VERT } from './shaders';
+import { compileWithDeadline } from './compile';
+import { AERIAL_FRAG, AERIAL_KM_PER_SLICE, AERIAL_SLICES, COMPOSITE_FRAG, ENV_FRAG, ENV_VERT, SKY_FRAG, SKY_VERT } from './shaders';
 
 type Vec3 = [number, number, number];
 
@@ -79,6 +81,11 @@ export interface StageOptions {
    * sunlight. Costs a heightfield march per aerial-volume sample; turn off to compare.
    */
   shadowedHaze?: boolean;
+  /**
+   * Volumetric cumulus clouds (default on, coverage 0.35). Pass false to turn off, or options
+   * ({ coverage, altitude, extinction, ... }). They shadow the ground, objects and haze.
+   */
+  clouds?: boolean | CloudOptions;
   /** Text summary for screen readers: what the scene shows. */
   label?: string;
   /** Tone mapping operator. Default 'agx'. */
@@ -137,6 +144,8 @@ export class Stage {
   readonly atmosphere: Atmosphere;
   readonly sun: DirectionalLight;
   readonly canvas: HTMLCanvasElement;
+  /** The cloud layer (null when created with clouds: false). Change it with setClouds(). */
+  readonly clouds: Clouds | null;
   /**
    * Resolves once the stage's shaders have compiled. They compile in parallel on the GPU
    * driver (KHR_parallel_shader_compile), so the page never freezes; frames start after.
@@ -196,6 +205,10 @@ export class Stage {
   private sunShaders: ((m: Material) => void)[] = [];
   private sunAware: { setSunDirection: (d: Vector3, r: WebGLRenderer) => void }[] = [];
   private shadowsDirty = true;
+  /** Direct sunlight getting through the clouds at the camera (for the meter). */
+  private cloudSunT = 1;
+  private cloudProbeKey = '';
+  private cloudProbeBusy = false;
 
   constructor(container: HTMLElement, opts: StageOptions = {}) {
     this.container = container;
@@ -298,6 +311,24 @@ export class Stage {
     });
     this.composite = new FullScreenQuad(this.compositeMat);
 
+    const cloudOpt = opts.clouds ?? true;
+    this.clouds = cloudOpt === false ? null : new Clouds(shared, viewUniforms, typeof cloudOpt === 'object' ? cloudOpt : {});
+    if (this.clouds) {
+      const c = this.clouds;
+      Object.assign(this.aerialMat.uniforms, c.shadowUniforms);
+      this.aerialMat.defines.CLOUD_SHADOW = '';
+      Object.assign(this.compositeMat.uniforms, {
+        tClouds: { value: c.target.texture },
+        uCloudsOn: { value: 0 },
+        uCloudScale: { value: 2 },
+        uNear: { value: this.camera.near },
+        uFar: { value: this.camera.far },
+      });
+      this.compositeMat.defines.CLOUDS = '';
+      c.marchMat.uniforms.uAerialSlices.value = AERIAL_SLICES;
+      c.marchMat.uniforms.uAerialKmPerSlice.value = AERIAL_KM_PER_SLICE;
+    }
+
     this.sun = new DirectionalLight(0xffffff, 1);
     this.sun.name = 'Sun';
     this.sun.castShadow = true;
@@ -341,10 +372,8 @@ export class Stage {
     const nextTask = yieldTask;
     this.staging = true;
     try {
-      for (let k = 1; k <= 8; k++) {
-        this.renderSteps(k);
-        await nextTask();
-      }
+      for (let k = 1; !this.renderSteps(k); k++) await nextTask();
+      await nextTask();
     } finally {
       this.staging = false;
     }
@@ -362,6 +391,7 @@ export class Stage {
       this.envMat,
       this.skyMat,
       ...this.ao.materials,
+      ...(this.clouds?.materials ?? []),
     ];
     for (const m of mats) {
       const mesh = new Mesh(m === this.ao.materials[2] ? sphere : quad, m);
@@ -370,7 +400,7 @@ export class Stage {
     }
     try {
       // GLSL translate + link in parallel on the driver (KHR_parallel_shader_compile).
-      await this.renderer.compileAsync(tmp, this.camera, this.scene);
+      await compileWithDeadline(this.renderer, tmp, this.camera, this.scene);
       // First draws still stall (pipeline creation in the GPU process): one pipeline per task.
       const nextTask = yieldTask;
       for (let i = 0; i < this.atmosphere.materials.length; i++) {
@@ -379,6 +409,7 @@ export class Stage {
       }
       this.pmrem.compileCubemapShader();
       await nextTask();
+      await this.clouds?.generate(this.renderer);
       this.warm = true;
       await this.stagedFrame();
     } finally {
@@ -423,6 +454,7 @@ export class Stage {
         if (!mat || node === this.skyMesh) return;
         for (const m of Array.isArray(mat) ? mat : [mat]) {
           for (const f of this.sunShaders) f(m);
+          this.clouds?.shade(m);
           this.ao.apply(m);
         }
       });
@@ -436,7 +468,7 @@ export class Stage {
         objects.map(async (o) => {
           const prep = (o as unknown as { prepare?: (r: WebGLRenderer, c: PerspectiveCamera) => Promise<void> }).prepare;
           if (typeof prep === 'function') await prep.call(o, this.renderer, this.camera);
-          await this.renderer.compileAsync(o, this.camera, this.scene);
+          await compileWithDeadline(this.renderer, o, this.camera, this.scene);
         }),
       );
       // The aerial pass may have gained TERRAIN_SHADOW: compile that variant too.
@@ -444,7 +476,7 @@ export class Stage {
       const m = new Mesh(this.skyMesh.geometry, this.aerialMat);
       m.frustumCulled = false;
       tmp.add(m);
-      await this.renderer.compileAsync(tmp, this.camera);
+      await compileWithDeadline(this.renderer, tmp, this.camera);
     })()
       .catch(() => undefined)
       .then(async () => {
@@ -459,10 +491,8 @@ export class Stage {
           for (let i = 0; i < objects.length; i++) {
             objects[i].visible = vis[i];
             this.shadowsDirty = true;
-            for (let k = 5; k <= 7; k++) {
-              this.renderSteps(k); // haze volume, AO G-buffer, then the scene pass
-              await nextTask();
-            }
+            for (let k = 1; !this.renderSteps(k); k++) await nextTask();
+            await nextTask();
           }
         } finally {
           objects.forEach((o, i) => (o.visible = vis[i]));
@@ -511,6 +541,17 @@ export class Stage {
   /** Turn ambient occlusion on or off (on by default). */
   setAmbientOcclusion(on: boolean): this {
     this.ao.enabled = on;
+    this.invalidate();
+    return this;
+  }
+
+  /**
+   * Change the clouds: { coverage } (0 clear … 1 overcast), altitude, extinction, shadows.
+   * No effect on a stage created with clouds: false.
+   */
+  setClouds(opts: CloudOptions): this {
+    this.clouds?.set(opts);
+    this.shadowsDirty = true;
     this.invalidate();
     return this;
   }
@@ -676,6 +717,7 @@ export class Stage {
     const pr = this.renderer.getPixelRatio();
     this.hdr.setSize(Math.round(w * pr), Math.round(h * pr));
     this.ao.setSize(Math.round(w * pr), Math.round(h * pr));
+    this.clouds?.setSize(Math.round(w * pr), Math.round(h * pr));
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.invalidate();
@@ -712,12 +754,13 @@ export class Stage {
     const el = this.sunAngles.elevation;
     const altKm = this.camAtm.y - R;
     const mode = this.exposureMode;
-    const key = `${el},${this.sunAngles.azimuth},${altKm.toFixed(2)},${this.sunLux},${this.compensation},${JSON.stringify(mode)}`;
+    const key = `${el},${this.sunAngles.azimuth},${altKm.toFixed(2)},${this.sunLux},${this.compensation},${JSON.stringify(mode)},${this.cloudSunT.toFixed(3)}`;
     if (key === this.meterKey) return false;
     this.meterKey = key;
     // Incident meter: direct sun on a horizontal sensor + sky irradiance (GPU, per unit sun).
     const yT = 0.2126 * T[0] + 0.7152 * T[1] + 0.0722 * T[2];
-    const directLux = this.sunLux * yT * Math.max(Math.sin((el * Math.PI) / 180), 0);
+    // Clouds between the camera and the sun dim the direct part (shadow-map probe, async).
+    const directLux = this.sunLux * yT * Math.max(Math.sin((el * Math.PI) / 180), 0) * this.cloudSunT;
     // Sky light: the first reading waits for the GPU; later ones are asynchronous so dragging
     // the sun never stalls a frame (the meter then trails by a frame or two).
     const skyKey = `${el},${this.sunAngles.azimuth},${altKm.toFixed(2)}`;
@@ -757,6 +800,26 @@ export class Stage {
     return this.preExposure !== prev;
   }
 
+  /** Read the cloud shadow at the camera for the meter, when the camera or the clouds moved. */
+  private probeCloudShadow(sd: Vector3): void {
+    const c = this.clouds;
+    if (!c || this.cloudProbeBusy) return;
+    const p = this.camera.position;
+    const key = `${c.shadowVersion},${Math.round(p.x / 25)},${Math.round(p.y / 25)},${Math.round(p.z / 25)}`;
+    if (key === this.cloudProbeKey) return;
+    this.cloudProbeKey = key;
+    this.cloudProbeBusy = true;
+    const job = c.sunTransmittanceAt(this.renderer, p.clone(), sd.clone()).then((t) => {
+      this.cloudProbeBusy = false;
+      if (Math.abs(t - this.cloudSunT) > 0.005) {
+        this.cloudSunT = t;
+        this.meterKey = '';
+        this.invalidate();
+      }
+    }, () => { this.cloudProbeBusy = false; });
+    this.meterPending = this.meterPending ? Promise.all([this.meterPending, job]).then(() => undefined) : job;
+  }
+
   /** Draw one frame now. Normally you call invalidate() instead. */
   render(): void {
     if (!this.warm || this.staging) return; // shaders still warming; a frame follows when ready
@@ -768,8 +831,10 @@ export class Stage {
    * separate tasks, so each pipeline's first draw (which stalls while the GPU process builds
    * the pipeline) lands in its own task instead of one long freeze.
    */
-  private renderSteps(limit: number): void {
+  private renderSteps(limit: number): boolean {
     const t0 = performance.now();
+    let n = 0;
+    const stop = () => ++n >= limit;
     const cam = this.camera;
     if (this.ground) {
       const g = this.ground(cam.position.x, cam.position.z) + 1.5;
@@ -791,7 +856,7 @@ export class Stage {
       u.uSunIlluminance.value.setScalar(this.sunLux * this.preExposure);
       this.atmosphere.update(this.renderer, this.camAtm.y);
     }
-    if (limit <= 1) return;
+    if (stop()) return false;
     this.sun.color.setRGB(T[0], T[1], T[2]);
     this.sun.intensity = this.sunLux * this.preExposure;
     this.sun.visible = this.sunAngles.elevation > -1;
@@ -800,6 +865,14 @@ export class Stage {
     this.sun.position.copy(this.controls.target).addScaledVector(sd, 4000);
     this.sun.target.updateMatrixWorld();
     for (const o of this.sunAware) o.setSunDirection(sd, this.renderer);
+    if (this.clouds?.visible) {
+      if (stop()) return false;
+      this.clouds.updateShadow(this.renderer, this.controls.target, sd);
+      this.probeCloudShadow(sd);
+    } else if (this.cloudSunT !== 1) {
+      this.cloudSunT = 1;
+      this.meterKey = '';
+    }
 
     // The sun's shadow map depends on the sun and the orbit target, not on the camera angle,
     // so orbiting reuses it. Animated scenes (loop) and scene edits redraw it every frame.
@@ -810,30 +883,43 @@ export class Stage {
       this.shadowsDirty = false;
     }
 
-    if (limit <= 2) return;
+    if (stop()) return false;
     this.updateEnvironment(t0);
-    if (limit <= 3) return;
+    if (stop()) return false;
     // The environment cube may be up to one throttle window old; rescale it to the current
     // exposure so ambient light never lags the camera.
     this.scene.environmentIntensity = this.preExposure / this.envPreExposure;
 
-    if (limit <= 4) return;
+    if (stop()) return false;
     for (let z = 0; z < AERIAL_SLICES; z++) {
       this.aerialMat.uniforms.uSlice.value = z;
       this.renderer.setRenderTarget(this.aerial, z);
       this.aerialQuad.render(this.renderer);
     }
 
-    if (limit <= 5) return;
+    if (stop()) return false;
     this.ao.update(this.renderer, [this.skyMesh]);
-    if (limit <= 6) return;
+    if (stop()) return false;
     this.renderer.setRenderTarget(this.hdr);
     this.renderer.render(this.scene, cam);
     this.renderer.setRenderTarget(null);
-    if (limit <= 7) return;
+    if (stop()) return false;
+    const cloudsOn = !!this.clouds?.visible;
+    if (this.clouds) {
+      this.compositeMat.uniforms.uCloudsOn.value = cloudsOn ? 1 : 0;
+      const cu = this.compositeMat.uniforms;
+      cu.uCloudScale.value = this.clouds.scale;
+      cu.uNear.value = cam.near;
+      cu.uFar.value = cam.far;
+      if (cloudsOn) {
+        this.clouds.render(this.renderer, this.hdr.depthTexture, this.aerial.texture);
+        if (stop()) return false;
+      }
+    }
     this.composite.render(this.renderer);
     this.lastRenderMs = performance.now() - t0;
     for (const f of this.renderListeners) f();
+    return true;
   }
 
   dispose(): void {
@@ -849,6 +935,7 @@ export class Stage {
     this.aerialQuad.dispose();
     this.ao.dispose();
     this.aerial.dispose();
+    this.clouds?.dispose();
     this.renderer.dispose();
     this.canvas.remove();
   }

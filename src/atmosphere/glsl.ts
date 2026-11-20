@@ -16,6 +16,27 @@ export const LUT_SIZES = {
   skyView: [192, 108],
 } as const;
 
+/**
+ * Cloud shadow lookup (Clouds.ts bakes the map): transmittance of sunlight through the cloud
+ * layer for a scene-space point p (metres). The map stores rays that start on the plane y = 0,
+ * so p is first slid back along the sun ray to that plane.
+ */
+export const CLOUD_SHADOW_LOOKUP = /* glsl */ `
+uniform sampler2D uCloudShadowTex;
+uniform vec2 uCloudShadowCenter;   // metres, xz
+uniform float uCloudShadowExtent;  // metres, full width
+uniform vec3 uCloudSunDir;
+uniform float uCloudShadowOn;
+uniform float uCloudTopM;          // metres; points above the layer are never shadowed
+float cloudSunTransmittance(vec3 p) {
+  if (uCloudShadowOn < 0.5 || uCloudSunDir.y < 0.02 || p.y > uCloudTopM) return 1.0;
+  vec2 xz = p.xz - uCloudSunDir.xz / uCloudSunDir.y * max(p.y, 0.0);
+  vec2 uv = (xz - uCloudShadowCenter) / uCloudShadowExtent + 0.5;
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 1.0;
+  return texture(uCloudShadowTex, uv).r;
+}
+`;
+
 export const COMMON = /* glsl */ `
 #define PI 3.14159265358979
 uniform float uBottomRadius;
@@ -160,6 +181,12 @@ float terrainSunVisibility(vec3 pAtm, vec3 sunDir) {
 }
 #endif
 
+// Optional cloud shadowing of the haze (defined when clouds are on): sunlight that a cloud
+// blocks no longer scatters in the air below it, giving shafts of light through gaps.
+#ifdef CLOUD_SHADOW
+${CLOUD_SHADOW_LOOKUP}
+#endif
+
 // Single scattering plus the multiple-scattering term along a ray, up to tLimit km.
 // sunDir is passed in (not uSunDir) so the sky-view pass can use its local frame.
 // Returns in-scattered luminance; writes the ray's transmittance to tOut.
@@ -189,6 +216,9 @@ vec3 integrateScattering(vec3 ro, vec3 rd, vec3 sunDir, float tLimit, int steps,
     float shadow = raySphere(P, sunDir, uBottomRadius) >= 0.0 ? 0.0 : 1.0;
 #ifdef TERRAIN_SHADOW
     shadow *= terrainSunVisibility(P, sunDir);
+#endif
+#ifdef CLOUD_SHADOW
+    shadow *= cloudSunTransmittance(vec3(P.x, P.y - uBottomRadius, P.z) * 1000.0);
 #endif
     vec3 Tsun = getTransmittance(pr, sunCos);
     vec3 phaseScat = m.scatRay * phR + m.scatMie * phM;

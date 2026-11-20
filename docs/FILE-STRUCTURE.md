@@ -5,7 +5,7 @@ index.html                 Demo page (alpine valley, sun controls, settings, fee
 demo/main.ts               Demo logic: scene, controls, preferences, shortcuts
 demo/style.css             Demo look: warm light / quiet dark, opening animation
 examples/hello.html        Smallest complete scene (13 lines)
-examples/selfcheck.html/ts GPU checks: LUT vs CPU, Bucholtz, sunset, WebGL errors
+examples/selfcheck.html/ts GPU checks: LUT vs CPU, Bucholtz, sunset, sky occlusion, clouds, WebGL errors
 public/icon.svg, icon-180.png  App icon (favicon, touch icon, header mark)
 
 src/index.ts               Public API
@@ -21,7 +21,13 @@ src/stage/
                            froxel aerial perspective, composite, on-demand loop, snapshot, benchmark
   shaders.ts               Sky background, environment cube, aerial volume, composite
   ambientOcclusion.ts      GTAO computed via three's GTAOPass, applied to indirect light only
-  yieldTask.ts             Yield to the browser without throttled timers (staged warm-up)
+  yieldTask.ts             Yield to the browser without throttled timers; gpuIdle() fence wait
+  compile.ts               compileAsync with a deadline (some programs never report done)
+src/clouds/
+  reference.ts             CPU reference: Mie-fit phase function, octaves, integration step, profile
+  pathTrace.ts             Monte Carlo slab path tracer: ground truth the octaves are fitted to
+  glsl.ts                  Noise generation, density, half-res march, shadow map (GLSL)
+  Clouds.ts                Owns noise textures, march and shadow targets; shades lit materials
 src/terrain/
   noise.ts                 Seeded gradient noise, fBm, ridged multifractal
   build.ts                 Pure terrain build: heights, erosion, normals, colours, mesh arrays
@@ -36,6 +42,7 @@ tests/photometry.test.ts Sunny 16, meter vs camera, grey-card exposure
 tests/erosion.test.ts    Gullies run downhill, flat stays flat, determinism, mesh arrays
 tests/skyView.test.ts    SVF closed forms: pit cos²h, wall ½, tilted plane, open slopes
 tests/terrain.test.ts      Determinism, ranges, mesh vs heightAt
+tests/clouds.test.ts       Phase normalisation, analytic slab, octave energy, fit vs path tracer
 
 docs/                      README links: instructions, system design, concepts, viz log, prompts
 ```

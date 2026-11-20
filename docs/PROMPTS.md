@@ -39,3 +39,6 @@
 
 12. "Yes, fix the stall"
    → compileAsync alone made it worse (1107 ms); the cause turned out to be per-pipeline first-draw stalls, not GLSL compilation. Staged first frames (one pipeline per task) and objects inserted one per task brought the longest load task from 412–465 ms to 126–234 ms. Yields avoid throttled timers.
+
+13. "Yes, clouds"
+   → Volumetric cumulus: GPU noise, Jendersie & d'Eon phase function (constants checked against the paper), Frostbite integration. A Monte Carlo slab path tracer showed the usual a = b = c = ½ octaves 2.5–6× too dark; refitted to N 8, a 0.8, b 0.9, c 0.25 (35% RMS). Fixed marshmallow shapes (noise range squashed to 0.71–0.92), a step ping-pong bug, low-sun shadow stripes, and 1.4 s shader compiles from unrolled loops (now 0.11 s). Cloud shadows reach the ground, objects, haze and the meter; Cloud cover slider in the demo.
